@@ -27,8 +27,12 @@ plaques.d/        # Archive (auto-created)
 ## Setup
 
 ```bash
-pip install --break-system-packages \
-    customtkinter ultralytics easyocr opencv-python pillow
+# Create and activate a virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install customtkinter ultralytics easyocr opencv-python pillow
 
 # Place your trained model
 cp your_model.pt anpr_best.pt
