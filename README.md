@@ -27,11 +27,14 @@ plaques.d/        # Archive (auto-created)
 ## Setup
 
 ```bash
+# Install system dependencies
+sudo apt install ffmpeg python3-tk
+
 # Create and activate a virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
-# Install dependencies
+# Install Python dependencies
 pip install customtkinter ultralytics easyocr opencv-python pillow
 
 # Place your trained model
