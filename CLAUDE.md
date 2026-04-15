@@ -203,13 +203,10 @@ All modules complete. Ready for integration testing.
 
 #### Dependencies
   - Python 3 with tkinter (python3-tk)
-  - pip install --break-system-packages customtkinter ultralytics easyocr opencv-python pillow
+  - ffmpeg (for RTSP snapshot capture)
+  - Create & activate a virtual environment, then install:
+    ```bash
+    python3 -m venv .venv && source .venv/bin/activate
+    pip install customtkinter ultralytics easyocr opencv-python pillow
+    ```
  
-                                                                                                                   
-# Legacy System (ulpr/)
-                                                                                               
-  The old gate control system using OpenALPR is preserved in ulpr/ for reference. It consists of:
-  - portier.py - Main polling loop
-  - plaque.py - Plate detection with OpenALPR
-  - ouverture.py - Gate relay control
-  - portier.conf - Configuration file

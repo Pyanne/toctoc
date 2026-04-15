@@ -37,8 +37,8 @@ source venv/bin/activate
 # Install Python dependencies
 pip install customtkinter ultralytics easyocr opencv-python pillow
 
-# Place your trained model
-cp your_model.pt anpr_best.pt
+# Download the trained model
+curl -L -o anpr_best.pt "https://drive.google.com/uc?export=download&id=1C43R0SXR8GqnJAKDG15ggOr7U7MBjw3F"
 
 # Edit portier.conf with your camera/relay credentials
 

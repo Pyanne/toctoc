@@ -9,8 +9,11 @@ from queue import Queue, Empty
 from typing import Optional
 
 import numpy as np
-from customtkinter import (CTk, CTkButton, CTkCanvas, CTkCheckBox,
-                           CTkEntry, CTkFrame, CTkLabel, CTkScrollableFrame,
+import tkinter as tk
+from PIL import Image, ImageTk
+
+from customtkinter import (CTk, CTkButton, CTkCheckBox,
+                           CTkEntry, CTkFrame, CTkImage, CTkLabel, CTkScrollableFrame,
                            CTkTextbox, CTkToplevel)
 
 
@@ -26,21 +29,6 @@ class DetectionEvent:
 # ------------------------------------------------------------------
 # Utility
 # ------------------------------------------------------------------
-
-def cv2_to_ctk_image(frame: np.ndarray, size: tuple[int, int]) -> any:
-    """Convert an OpenCV BGR frame to a CTk PhotoImage."""
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    resized = cv2.resize(rgb, size, interpolation=cv2.INTER_LINEAR)
-    from PIL import Image
-    return CTkImage._from_data_(resized, size[0], size[1])
-
-
-def ctk_image_from_file(path: str, size: tuple[int, int]) -> any:
-    """Load an image file and return a CTk-compatible image."""
-    from PIL import Image
-    img = Image.open(path).resize(size, Image.LANCZOS)
-    return CTkImage._from_data_(np.array(img), size[0], size[1])
-
 
 # ------------------------------------------------------------------
 # Main GUI Window
@@ -418,11 +406,8 @@ class ANGUIGate:
             return
         def work():
             try:
-                from PIL import Image, ImageTk
-                img = Image.open(image_path)
-                w, h = 640, 360
-                img = img.resize((w, h), Image.LANCZOS)
-                self._current_tk_image = ImageTk.PhotoImage(img)
+                img = Image.open(image_path).resize((640, 360), Image.LANCZOS)
+                self._current_tk_image = CTkImage(light_image=img, size=(640, 360))
                 self._lbl_frame.configure(image=self._current_tk_image, text="")
             except Exception:
                 pass
@@ -537,6 +522,7 @@ class SettingsWindow:
         self._build()
         self._win.deiconify()
         self._win.grab_set()
+        self._win.after_idle(self._roi_capture_frame)
 
     def _build(self):
         scroll = CTkScrollableFrame(self._win, corner_radius=0)
@@ -598,6 +584,8 @@ class SettingsWindow:
 
     def _build_roi(self, parent):
         parent.grid_columnconfigure(1, weight=1)
+
+        # --- Numeric entry fields ---
         x1 = self.cfg.getint("camera.roi", "x1")
         y1 = self.cfg.getint("camera.roi", "y1")
         x2 = self.cfg.getint("camera.roi", "x2")
@@ -618,14 +606,188 @@ class SettingsWindow:
         self._roi_y2 = CTkEntry(parent, width=80)
         self._roi_y2.insert(0, str(y2))
         self._roi_y2.grid(row=2, column=3, padx=4, pady=4, sticky="w")
+
+        for entry in (self._roi_x1, self._roi_y1, self._roi_x2, self._roi_y2):
+            entry.bind("<FocusOut>", lambda _: self._roi_sync_from_entries())
+
+        # --- ROI canvas (standard tkinter Canvas for full mouse support) ---
+        canvas_frame = CTkFrame(parent, corner_radius=6, fg_color="#111111")
+        canvas_frame.grid(row=3, column=0, columnspan=4, padx=12, pady=(4, 4), sticky="ew")
+        self._roi_canvas = tk.Canvas(canvas_frame, width=640, height=360,
+                                     bg="#111111", highlightthickness=0)
+        self._roi_canvas.pack(padx=0, pady=0)
+
+        # Initial state
+        self._roi_frame_path = ""
+        self._roi_image_id = None
+        self._roi_rect_id = None
+        self._roi_handle_ids = []
+        self._roi_drag = {"mode": None, "sx": 0, "sy": 0,
+                          "fx1": x1, "fy1": y1, "fx2": x2, "fy2": y2}
+        self._roi_scale = (1.0, 1.0)
+
+        # Mouse bindings
+        self._roi_canvas.bind("<Button-1>", self._roi_on_click)
+        self._roi_canvas.bind("<B1-Motion>", self._roi_on_drag)
+        self._roi_canvas.bind("<ButtonRelease-1>", self._roi_on_release)
+
         CTkButton(parent, text="Reset ROI", command=self._roi_reset).grid(
-            row=3, column=0, columnspan=4, padx=12, pady=(4, 12), sticky="w")
+            row=5, column=0, columnspan=4, padx=12, pady=(0, 12), sticky="w")
 
     def _roi_reset(self):
         self._roi_x1.delete(0, "end"); self._roi_x1.insert(0, "0")
         self._roi_y1.delete(0, "end"); self._roi_y1.insert(0, "0")
         self._roi_x2.delete(0, "end"); self._roi_x2.insert(0, "1920")
         self._roi_y2.delete(0, "end"); self._roi_y2.insert(0, "1080")
+        self._roi_sync_from_entries()
+
+    # ------------------------------------------------------------------
+    # ROI canvas helpers
+    # ------------------------------------------------------------------
+
+    def _roi_capture_frame(self):
+        rtsp_url = self.cfg.get_rtsp_url()
+        tmp = "/tmp/roi_sample.jpg"
+        if grab_snapshot(rtsp_url, tmp):
+            self._roi_frame_path = tmp
+            self._roi_load_image(tmp)
+        else:
+            self._roi_canvas.delete("all")
+            self._roi_canvas.create_text(320, 180, text="Failed to capture frame",
+                                         fill="#888888", anchor="c")
+
+    def _roi_load_image(self, path: str):
+        """Load image into the ROI canvas, compute scale, and draw ROI."""
+        cw = self._roi_canvas.winfo_width() or 640
+        ch = self._roi_canvas.winfo_height() or 360
+        if cw < 2 or ch < 2:
+            cw, ch = 640, 360
+        img = Image.open(path)
+        fw, fh = img.size
+        # Scale to fit canvas (letterbox)
+        scale = min(cw / fw, ch / fh)
+        nw, nh = int(fw * scale), int(fh * scale)
+        self._roi_canvas_w = nw
+        self._roi_canvas_h = nh
+        self._roi_frame_w = fw
+        self._roi_frame_h = fh
+        self._roi_scale = (fw / nw, fh / nh)
+        img = img.resize((nw, nh), Image.LANCZOS)
+        self._roi_tk = ImageTk.PhotoImage(img)
+        self._roi_canvas.delete("all")
+        self._roi_image_id = self._roi_canvas.create_image(nw // 2, nh // 2, image=self._roi_tk)
+        self._roi_draw()
+
+    def _roi_sync_from_entries(self):
+        """Read values from entries, clamp, store, and redraw."""
+        for key, entry in [("fx1", self._roi_x1), ("fy1", self._roi_y1),
+                           ("fx2", self._roi_x2), ("fy2", self._roi_y2)]:
+            try:
+                val = max(0, int(float(entry.get())))
+            except ValueError:
+                val = 0
+            self._roi_drag[key] = val
+        self._roi_draw()
+
+    def _roi_sync_to_entries(self):
+        """Write current ROI coords back to entry widgets."""
+        for key, entry in [("fx1", self._roi_x1), ("fy1", self._roi_y1),
+                           ("fx2", self._roi_x2), ("fy2", self._roi_y2)]:
+            entry.delete(0, "end")
+            entry.insert(0, str(self._roi_drag[key]))
+        self._roi_draw()
+
+    def _roi_draw(self):
+        """Draw the ROI rectangle and corner handles on the canvas."""
+        self._roi_canvas.delete("roi_rect", "roi_handle")
+        sx, sy = self._roi_scale
+        fx1, fy1, fx2, fy2 = (self._roi_drag[k] for k in
+                              ("fx1", "fy1", "fx2", "fy2"))
+        if not hasattr(self, "_roi_canvas_w"):
+            return
+        # Map frame → canvas coords
+        x1 = int(fx1 / sx)
+        y1 = int(fy1 / sy)
+        x2 = int(fx2 / sx)
+        y2 = int(fy2 / sy)
+        if x2 <= x1 or y2 <= y1:
+            return
+        # Rectangle outline
+        self._roi_rect_id = self._roi_canvas.create_rectangle(
+            x1, y1, x2, y2, outline="#FFA500", width=2, tags="roi_rect")
+        # Corner handles (8×8 px)
+        handles = [(x1, y1), (x2, y1), (x1, y2), (x2, y2)]
+        self._roi_handle_ids = []
+        for hx, hy in handles:
+            hid = self._roi_canvas.create_rectangle(
+                hx - 4, hy - 4, hx + 4, hy + 4,
+                fill="#FFFFFF", outline="#FFA500", width=1, tags="roi_handle")
+            self._roi_handle_ids.append(hid)
+
+    def _roi_hit_test(self, cx: int, cy: int) -> str:
+        """Return the drag target near (cx, cy) or "move"/None."""
+        r = 10  # hit radius
+        corners = [("corner_tl", self._roi_drag["fx1"], self._roi_drag["fy1"]),
+                   ("corner_tr", self._roi_drag["fx2"], self._roi_drag["fy1"]),
+                   ("corner_bl", self._roi_drag["fx1"], self._roi_drag["fy2"]),
+                   ("corner_br", self._roi_drag["fx2"], self._roi_drag["fy2"])]
+        sx, sy = self._roi_scale
+        for name, fx, fy in corners:
+            if abs(cx - fx / sx) <= r and abs(cy - fy / sy) <= r:
+                return name
+        # Check inside rectangle for move
+        fx1, fy1, fx2, fy2 = (self._roi_drag[k] for k in
+                              ("fx1", "fy1", "fx2", "fy2"))
+        x1, y1 = fx1 / sx, fy1 / sy
+        x2, y2 = fx2 / sx, fy2 / sy
+        if x1 <= cx <= x2 and y1 <= cy <= y2:
+            return "move"
+        return None
+
+    def _roi_on_click(self, event):
+        target = self._roi_hit_test(event.x, event.y)
+        if target:
+            self._roi_drag["mode"] = target
+            self._roi_drag["sx"] = event.x
+            self._roi_drag["sy"] = event.y
+
+    def _roi_on_drag(self, event):
+        mode = self._roi_drag.get("mode")
+        if not mode:
+            return
+        sx, sy = self._roi_scale
+        dx = (event.x - self._roi_drag["sx"]) * sx
+        dy = (event.y - self._roi_drag["sy"]) * sy
+        fw, fh = self._roi_frame_w, self._roi_frame_h
+        fx1, fy1, fx2, fy2 = (self._roi_drag[k] for k in
+                               ("fx1", "fy1", "fx2", "fy2"))
+        if mode == "move":
+            w, h = fx2 - fx1, fy2 - fy1
+            fx1_n = max(0, min(fw - w, fx1 + dx))
+            fy1_n = max(0, min(fh - h, fy1 + dy))
+            self._roi_drag["fx2"] = fx1_n + w
+            self._roi_drag["fy2"] = fy1_n + h
+            self._roi_drag["fx1"] = fx1_n
+            self._roi_drag["fy1"] = fy1_n
+        elif mode == "corner_tl":
+            self._roi_drag["fx1"] = max(0, min(fx2 - 10, fx1 + dx))
+            self._roi_drag["fy1"] = max(0, min(fy2 - 10, fy1 + dy))
+        elif mode == "corner_tr":
+            self._roi_drag["fx2"] = max(10, min(fw, fx2 + dx))
+            self._roi_drag["fy1"] = max(0, min(fy2 - 10, fy1 + dy))
+        elif mode == "corner_bl":
+            self._roi_drag["fx1"] = max(0, min(fx2 - 10, fx1 + dx))
+            self._roi_drag["fy2"] = max(10, min(fh, fy2 + dy))
+        elif mode == "corner_br":
+            self._roi_drag["fx2"] = max(10, min(fw, fx2 + dx))
+            self._roi_drag["fy2"] = max(10, min(fh, fy2 + dy))
+        self._roi_drag["sx"] = event.x
+        self._roi_drag["sy"] = event.y
+        self._roi_sync_to_entries()
+
+    def _roi_on_release(self, _event):
+        self._roi_drag["mode"] = None
+        self._roi_sync_to_entries()
 
     def _build_relay(self, parent):
         parent.grid_columnconfigure(1, weight=1)
