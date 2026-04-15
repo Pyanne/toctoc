@@ -29,7 +29,7 @@ plaques.d/        # Archive (auto-created)
 ### Quick install (one-liner)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Pyanne/toctoc/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Pyanne/toctoc/master/install.sh | bash
 ```
 
 This will:
