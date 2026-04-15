@@ -37,7 +37,7 @@ class ANPR:
             boxes[:, [1, 3]] *= scale_y
         return boxes
 
-    def extract_text(self, im0: np.ndarray, bbox: np.ndarray):
+    def extract_text(self, im0: np.ndarray, bbox: np.ndarray, allowed_plates: set = None):
         """Performs OCR on the cropped license plate region."""
         if self.reader is None:
             import warnings
@@ -60,13 +60,13 @@ class ANPR:
             return ""
         chars = []
         for bbox_pts, text, conf in results:
-            if conf >= 0.3:
+            if conf >= 0.15:   # lowered from 0.3 to catch borderline reads
                 chars.append(text)
         raw = " ".join(chars).strip()
-        return self._correct_plate(raw) if raw else ""
+        return self._correct_plate(raw, allowed_plates) if raw else ""
 
     @staticmethod
-    def _correct_plate(raw: str) -> str:
+    def _correct_plate(raw: str, allowed_plates: set = None) -> str:
         """Post-process OCR output for French license plates.
 
         French plates use two formats:
@@ -74,6 +74,10 @@ class ANPR:
           - Old: 1234 AB 56 (4 digits, 2 letters, 2 digits)
 
         Letters I and O are never used, so we map them unambiguously.
+        J, U, W, Z never appear in standard French plates and are stripped.
+        Common suffix/prefix garbage from OCR boundary artifacts is removed.
+        End-character substitutions handle common OCR confusions at plate boundary.
+        Dictionary fallback catches 1-character errors against the allowed list.
         """
         # Map characters that are never valid French plate letters
         char_map = {
@@ -87,9 +91,87 @@ class ANPR:
         result = "".join(corrected)
         # Strip everything except letters, digits, and hyphens, then uppercase
         result = re.sub(r"[^A-Za-z0-9-]", "", result)
-        return result.upper()
+        result = result.upper()
 
-    def infer_image(self, image_path: str):
+        # Remove characters never found in French plates (per ANPR standard)
+        result = re.sub(r"[JUWZj]", "", result)
+
+        # Strip leading/trailing boundary digits — OCR often adds phantom 1s at plate edges
+        # Safe because new-format plates always have LETTERS at positions 1,2,4,5,7
+        # and old-format always starts with 4 digits. A digit next to a letter = boundary noise.
+        while result and result[0].isdigit() and (len(result) < 2 or result[1].isalpha()):
+            result = result[1:]
+        while result and result[-1].isdigit() and (len(result) < 2 or result[-2].isalpha()):
+            result = result[:-1]
+
+        # Re-format new-format French plates: 2 letters, 3 digits, 2 letters
+        new_pat = re.compile(r"^([A-Z]{2})[- ]*(\d{3})[- ]*([A-Z]{2})$")
+        m = new_pat.match(result)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+
+        # Re-format old-format French plates: 4 digits, 2 letters, 2 digits
+        old_pat = re.compile(r"^(\d{4})[- ]*([A-Z]{2})[- ]*(\d{2})$")
+        m = old_pat.match(result)
+        if m:
+            return f"{m.group(1)} {m.group(2)} {m.group(3)}"
+
+        # Try end-character substitutions: common OCR confusions at plate boundary
+        # H<->7, P<->F, P<->H — only swap if it creates a valid format
+        end_subs = [('7','H'), ('H','7'), ('F','P'), ('P','F'), ('H','P'), ('P','H')]
+        for old, new in end_subs:
+            if result and result[-1] == old and len(result) >= 2:
+                candidate = result[:-1] + new
+                m = new_pat.match(candidate)
+                if m:
+                    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+                m = old_pat.match(candidate)
+                if m:
+                    return f"{m.group(1)} {m.group(2)} {m.group(3)}"
+
+        # Dictionary fallback: if result is close to an allowed plate, use it
+        if allowed_plates:
+            result_key = re.sub(r"[- ]", "", result)
+
+            # Normalize allowed plates once
+            allowed_normalized = {}
+            for plate in allowed_plates:
+                pk = re.sub(r"[- ]", "", plate)
+                allowed_normalized[pk] = plate
+
+            # 1. Try stripping trailing digit pairs (handles garbled suffix: CF938PH301 -> CF938PH)
+            for tail_len in (2, 1):
+                if len(result_key) - tail_len >= 5:
+                    stripped = result_key[:-tail_len]
+                    if stripped in allowed_normalized:
+                        return allowed_normalized[stripped]
+
+            # 2. Exact match
+            if result_key in allowed_normalized:
+                return allowed_normalized[result_key]
+
+            # 3. One-character error correction (substitution, insertion, deletion)
+            best = None
+            best_diffs = 999
+            for plate_key, plate in allowed_normalized.items():
+                if len(result_key) == len(plate_key):
+                    diffs = sum(1 for a, b in zip(result_key, plate_key) if a != b)
+                    if diffs == 1 and diffs < best_diffs:
+                        best = plate
+                        best_diffs = diffs
+                elif abs(len(result_key) - len(plate_key)) == 1:
+                    # One extra or missing char — check prefix match
+                    shorter, longer = (result_key, plate_key) if len(result_key) < len(plate_key) else (plate_key, result_key)
+                    for i in range(len(longer)):
+                        candidate = longer[:i] + longer[i+1:]
+                        if candidate == shorter:
+                            return plate
+            if best:
+                return best
+
+        return result
+
+    def infer_image(self, image_path: str, allowed_plates: set = None):
         """Detects license plates in a single image and returns the extracted text(s)."""
         im0 = cv2.imread(image_path)
         if im0 is None:
@@ -98,7 +180,7 @@ class ANPR:
         boxes = self.detect_plates(im0)
         plates = []
         for bbox in boxes:
-            text = self.extract_text(im0, bbox)
+            text = self.extract_text(im0, bbox, allowed_plates)
             if text:
                 plates.append(text)
         return plates

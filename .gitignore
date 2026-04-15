@@ -33,5 +33,5 @@ plaques.d/
 # Claude Code settings
 CLAUDE.md
 
-# This file
-.gitignore
+# Personal conf file
+portier.conf

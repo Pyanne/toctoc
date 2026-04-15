@@ -1,6 +1,7 @@
 """CustomTkinter GUI for ANPR Gate Control System."""
 
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -368,17 +369,23 @@ class ANGUIGate:
                 self._update_frame_display(snap_path)
 
                 # Detect plates
-                plates = anpr.infer_image(snap_path)
+                plates = anpr.infer_image(snap_path, allowed_plates)
                 if not plates:
                     time.sleep(interval)
                     continue
 
                 plate = plates[0]
-                authorized = plate in allowed_plates
+                # Normalize for comparison: strip hyphens and spaces since config stores raw format
+                plate_key = re.sub(r"[- ]", "", plate)
+                authorized = plate_key in allowed_plates
 
                 # Reload allowed plates (hot-reload support)
                 allowed_plates = set(cfg.get_allowed_plates())
-                authorized = plate in allowed_plates
+                authorized = plate_key in allowed_plates
+
+                print("[%s] Detection: '%s' (%s) -> %s" % (
+                    datetime.now().strftime('%H:%M:%S'), plate, plate_key,
+                    "AUTHORIZED" if authorized else "DENIED"))
 
                 # Archive
                 image_path = None
@@ -398,13 +405,11 @@ class ANGUIGate:
                 gate_opened = False
                 if authorized and relay_online:
                     gate_opened = relay.open()
+                    in_cooldown = True
+                    cooldown_until = now + cooldown
                 elif authorized and not relay_online:
                     self._root.after(0, lambda: self._set_status(
                         "RELAY OFFLINE – gate not opened", self.COL_OFFLINE))
-
-                # Enter cooldown
-                in_cooldown = True
-                cooldown_until = now + cooldown
 
                 # Update GUI with result
                 self._root.after(0, lambda p=plate, a=authorized, g=gate_opened:
