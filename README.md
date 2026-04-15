@@ -26,13 +26,32 @@ plaques.d/        # Archive (auto-created)
 
 ## Setup
 
+### Quick install (one-liner)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Pyanne/toctoc/main/install.sh | bash
+```
+
+This will:
+- Install system dependencies (`ffmpeg`, `curl`, `git`, `python3-tk`)
+- Clone the repository into `~/anpr_gate/`
+- Create a virtual environment at `~/anpr_gate_env/`
+- Install Python dependencies
+- Download the YOLO model
+
+### Manual setup
+
 ```bash
 # Install system dependencies
 sudo apt install ffmpeg python3-tk
 
+# Clone the repository
+git clone https://github.com/Pyanne/toctoc.git ~/anpr_gate
+cd ~/anpr_gate
+
 # Create and activate a virtual environment
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv ~/anpr_gate_env
+source ~/anpr_gate_env/bin/activate
 
 # Install Python dependencies
 pip install customtkinter ultralytics easyocr opencv-python pillow
