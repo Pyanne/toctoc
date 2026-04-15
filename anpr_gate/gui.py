@@ -11,7 +11,7 @@ from typing import Optional
 import numpy as np
 from customtkinter import (CTk, CTkButton, CTkCanvas, CTkCheckBox,
                            CTkEntry, CTkFrame, CTkLabel, CTkScrollableFrame,
-                           CTkTextbox)
+                           CTkTextbox, CTkToplevel)
 
 
 @dataclass
@@ -530,13 +530,13 @@ class SettingsWindow:
         self._win.title("Settings")
         self._win.geometry("700x780")
         self._win.transient(parent)
-        self._win.grab_set()
         self._win.withdraw()  # hidden until show() is called
 
     def show(self):
         """Build and display the settings dialog (non-blocking)."""
         self._build()
         self._win.deiconify()
+        self._win.grab_set()
 
     def _build(self):
         scroll = CTkScrollableFrame(self._win, corner_radius=0)
