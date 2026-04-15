@@ -1,0 +1,36 @@
+[general]
+quiet_mode = False
+archive_enabled = True
+
+[camera]
+host = 192.168.1.100
+port = 554
+user = your_camera_user
+password = your_camera_password
+path = /h264/ch1/main/av_stream
+
+[camera.roi]
+x1 = 0
+y1 = 0
+x2 = 1920
+y2 = 1080
+
+[paths]
+snap_path = /tmp/picture.jpg
+cropped_path = /tmp/cropped.jpg
+archive_dir = plaques.d
+
+[relay]
+host = 192.168.1.200
+url_open = /30000/07
+url_close = /30000/06
+pulse_duration = 1
+
+[polling]
+poll_interval = 2
+cooldown_after_detection = 75
+relay_ping_interval = 1800
+
+[plates]
+CF938PH = 1
+YOUR_PLATE = 1

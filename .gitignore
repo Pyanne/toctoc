@@ -33,5 +33,10 @@ plaques.d/
 # Claude Code settings
 CLAUDE.md
 
-# Personal conf file
+# Personal conf file (contains credentials — never commit)
 portier.conf
+portier.conf.local
+
+# Environment / secrets
+.env
+.env.local
