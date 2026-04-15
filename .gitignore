@@ -29,3 +29,9 @@ plaques.d/
 # Temporary images
 *.jpg
 !anpr_gate/anpr.py
+
+# Claude Code settings
+CLAUDE.md
+
+# This file
+.gitignore

@@ -165,6 +165,17 @@ class ANGUIGate:
         self._chk_archive.select() if self.cfg.getboolean(
             "general", "archive_enabled", True) else self._chk_archive.deselect()
 
+        # Warn if no authorized plates are configured
+        if not self.cfg.get_allowed_plates():
+            self._show_banner("⚠️  No authorized plates – Open Settings to add at least one",
+                             self.COL_ALERT_FG, self.COL_ALERT_BG)
+
+        # Check camera connectivity at startup
+        self._check_camera_connectivity()
+
+        # Start detection automatically
+        self._on_start()
+
     def _build_header(self):
         frame = CTkFrame(self._content, corner_radius=0, fg_color="#1A1A1A")
         frame.grid(row=0, column=0, sticky="ew")
@@ -337,6 +348,7 @@ class ANGUIGate:
                 in_cooldown = False
 
             # Update poll info
+            interval = cfg.getint("polling", "poll_interval", 2)
             status_txt = (
                 f"Cooldown… {int(cooldown_until - now)}s remaining"
                 if in_cooldown else
@@ -413,6 +425,27 @@ class ANGUIGate:
                 pass
         self._root.after(0, work)
 
+    def _show_banner(self, text: str, fg: str, bg: str):
+        self._alert_label.configure(text=text, text_color=fg)
+        self._alert_frame.configure(fg_color=bg)
+        self._alert_frame.grid()
+
+    def _check_camera_connectivity(self):
+        """Test camera stream at startup; show alert if unreachable."""
+        rtsp_url = self.cfg.get_rtsp_url()
+        tmp = "/tmp/anpr_camera_test.jpg"
+        # Defer the actual capture so the window finishes rendering first
+        def work():
+            ok = self._grab_snapshot(rtsp_url, tmp) if self._grab_snapshot else grab_snapshot(rtsp_url, tmp)
+            if not ok:
+                self._show_banner("⚠️  Camera unreachable – check credentials in Settings",
+                                 self.COL_ALERT_FG, self.COL_ALERT_BG)
+        self._root.after(500, work)
+
+    def _refresh_poll_info(self):
+        interval = self.cfg.getint('polling', 'poll_interval', 2)
+        self._lbl_poll.configure(text=f'Polling every {interval}s')
+
     def _update_relay_status(self, online: bool):
         self._relay_online = online
         def work():
@@ -421,8 +454,8 @@ class ANGUIGate:
                 self._alert_frame.grid_remove()
             else:
                 self._lbl_relay.configure(text="OFFLINE", text_color=self.COL_OFFLINE)
-                self._alert_label.configure(text="  RELAY OFFLINE – Gate cannot open  ")
-                self._alert_frame.grid()
+                self._show_banner("  RELAY OFFLINE – Gate cannot open",
+                                  self.COL_ALERT_FG, self.COL_ALERT_BG)
         self._root.after(0, work)
 
     def _on_detection(self, plate: str, authorized: bool, gate_opened: bool):
@@ -842,6 +875,7 @@ class SettingsWindow:
         plates = [p.strip().upper() for p in raw.replace(",", "\n").splitlines() if p.strip()]
         cfg.set_allowed_plates(plates)
         cfg.save()
+        self.gui._refresh_poll_info()
         self._win.destroy()
 
 

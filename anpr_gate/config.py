@@ -12,17 +12,17 @@ quiet_mode = False
 archive_enabled = True
 
 [camera]
-host = 192.168.20.21
+host = <YOUR_CAMERA_HOST>
 port = 554
-user = ced
-password = Gougou00
-path = /h264/ch1/main/av_stream
+user = <YOUR_CAMERA_USER>
+password = <YOUR_CAMERA_PASSWORD>
+path = <YOUR_RTSP_PATH>
 
 [camera.roi]
-x1 = 1170
-y1 = 450
-x2 = 1640
-y2 = 750
+x1 = 0
+y1 = 0
+x2 = 1920
+y2 = 1080
 
 [paths]
 snap_path = /tmp/picture.jpg
@@ -30,7 +30,7 @@ cropped_path = /tmp/cropped.jpg
 archive_dir = plaques.d
 
 [relay]
-host = 192.168.20.26
+host = <YOUR_RELAY_HOST>
 url_open = /30000/07
 url_close = /30000/06
 pulse_duration = 1
