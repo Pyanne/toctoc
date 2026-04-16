@@ -13,15 +13,17 @@ Automatic Number Plate Recognition gate control system with a CustomTkinter GUI.
 
 ```
 anpr_gate/
-├── __init__.py   # Package init
-├── anpr.py       # Detection (YOLO + EasyOCR)
-├── relay.py      # Gate relay HTTP control
-├── config.py    # INI config manager
-├── gui.py        # CustomTkinter GUI
-└── main.py       # Entry point
+├── __init__.py    # Package init
+├── anpr.py        # Detection (YOLO + EasyOCR)
+├── relay.py       # Gate relay HTTP control
+├── config.py      # INI config manager
+├── gui.py         # CustomTkinter GUI
+├── main.py        # Entry point
+├── run_gate.sh    # Launcher script (double-clickable)
+└── icon.png       # Application icon (198×149 PNG)
 
-portier.conf      # Configuration file
-plaques.d/        # Archive (auto-created)
+portier.conf       # Configuration file
+plaques.d/         # Archive (auto-created)
 ```
 
 ## Setup
@@ -38,6 +40,7 @@ This will:
 - Create a virtual environment at `~/anpr_gate_env/`
 - Install Python dependencies
 - Download the YOLO model
+- Install the desktop launcher (double-click to run)
 
 ### Manual setup
 
@@ -63,6 +66,21 @@ curl -L -o anpr_best.pt "https://drive.google.com/uc?export=download&id=1C43R0SX
 
 python3 -m anpr_gate.main
 ```
+
+### Launch
+
+**Double-click (recommended):** open `anpr_gate/run_gate.sh` in your file manager, or search for "ANPR Gate Control" in your desktop environment's application launcher (GNOME Activities / KDE Kickoff).
+
+**From terminal:**
+```bash
+cd ~/anpr_gate
+./anpr_gate/run_gate.sh
+# or
+source ~/anpr_gate_env/bin/activate
+python3 -m anpr_gate.main
+```
+
+The launcher script automatically creates the virtual environment on first run if it is missing.
 
 ## Configuration
 
