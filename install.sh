@@ -6,7 +6,7 @@
 #   bash install.sh
 #
 # Run remotely (GitHub raw):
-#   curl -sSL https://raw.githubusercontent.com/Pyanne/toctoc/main/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/Pyanne/toctoc/master/install.sh | bash
 #
 set -euo pipefail
 
@@ -111,7 +111,7 @@ clone_repo() {
 
     if [ -d "$INSTALL_DIR/.git" ]; then
         info "Repository already exists at ${INSTALL_DIR} — pulling latest…"
-        git -C "$INSTALL_DIR" pull origin main
+        git -C "$INSTALL_DIR" pull origin master
         ok "Repository updated"
     else
         info "Cloning ${REPO_URL} into ${INSTALL_DIR}…"
