@@ -143,10 +143,10 @@ install_python_deps() {
 
     info "Installing: customtkinter ultralytics easyocr opencv-python pillow"
 
-    # Disable hungry warnings during install
+    # Show progress bar for long installs
     "$VENV_DIR/bin/pip" install \
         customtkinter ultralytics easyocr opencv-python pillow \
-        --quiet --no-warn-script-location
+        --progress-bar on --no-warn-script-location
 
     ok "Python packages installed"
 }
