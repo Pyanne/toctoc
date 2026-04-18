@@ -24,8 +24,6 @@ section() { echo -e "\n${BOLD}── $1 ──${RESET}"; }
 REPO_URL="https://github.com/Pyanne/toctoc.git"
 INSTALL_DIR="$HOME/anpr_gate"
 VENV_DIR="$HOME/anpr_gate_env"
-MODEL_URL="https://drive.google.com/uc?export=download&id=1C43R0SXR8GqnJAKDG15ggOr7U7MBjw3F"
-MODEL_FILE="anpr_best.pt"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 need_sudo() {
@@ -151,40 +149,6 @@ install_python_deps() {
     ok "Python packages installed"
 }
 
-# ── YOLO model ─────────────────────────────────────────────────────────────────
-download_model() {
-    section "Downloading YOLO model"
-
-    local model_locations=(
-        "$INSTALL_DIR/$MODEL_FILE"
-        "$HOME/$MODEL_FILE"
-        "$(pwd)/$MODEL_FILE"
-    )
-
-    for loc in "${model_locations[@]}"; do
-        if [ -f "$loc" ]; then
-            info "Model already present at ${loc} — skipping download"
-            return 0
-        fi
-    done
-
-    warn "Model not found in any expected location."
-    info "Downloading ${MODEL_FILE} from Google Drive…"
-
-    if curl -L -o "${INSTALL_DIR}/${MODEL_FILE}" \
-            --progress-bar \
-            --max-time 300 \
-            "$MODEL_URL"; then
-        ok "Model saved to ${INSTALL_DIR}/${MODEL_FILE}"
-    else
-        warn "Model download failed (check your connection or the Google Drive link)."
-        warn "You can download it manually and place it as:"
-        warn "  ${INSTALL_DIR}/${MODEL_FILE}"
-        warn "  or ~/anpr_best.pt"
-        warn "The app will also look for it in the current directory."
-    fi
-}
-
 
 # ── Finished ───────────────────────────────────────────────────────────────────
 print_usage() {
@@ -214,7 +178,6 @@ main() {
     clone_repo
     create_venv
     install_python_deps
-    download_model
     print_usage
 }
 
