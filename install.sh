@@ -103,11 +103,21 @@ install_system_deps() {
     esac
 }
 
-# ── Clone / update repo ────────────────────────────────────────────────────────
-clone_repo() {
-    section "Cloning repository"
+# ── Install from local or remote ───────────────────────────────────────────────
+install_repo() {
+    section "Installing repository"
 
-    if [ -d "$INSTALL_DIR/.git" ]; then
+    # Check if we're running from within an existing checkout
+    if [ -d ".git" ]; then
+        info "Detected local checkout — copying files instead of cloning…"
+        if [ -d "$INSTALL_DIR" ]; then
+            warn "Target ${INSTALL_DIR} already exists — skipping copy"
+        else
+            mkdir -p "$INSTALL_DIR"
+            cp -r anpr_gate "$INSTALL_DIR/"
+            ok "Files copied to ${INSTALL_DIR}"
+        fi
+    elif [ -d "$INSTALL_DIR/.git" ]; then
         info "Repository already exists at ${INSTALL_DIR} — pulling latest…"
         git -C "$INSTALL_DIR" pull origin master
         ok "Repository updated"
@@ -170,12 +180,12 @@ print_usage() {
 main() {
     echo -e "${BOLD}"
     echo -e "╔══════════════════════════════════════════╗\n"
-    echo -e "║   ANPR Gate Control — Installer        ║\n"
+    echo -e "║     ANPR Gate Control — Installer        ║\n"
     echo -e "╚══════════════════════════════════════════╝${RESET}"
 
     detect_distro
     install_system_deps
-    clone_repo
+    install_repo
     create_venv
     install_python_deps
     print_usage
