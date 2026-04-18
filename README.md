@@ -39,8 +39,17 @@ This will:
 - Clone the repository into `~/anpr_gate/`
 - Create a virtual environment at `~/anpr_gate_env/`
 - Install Python dependencies
-- Download the YOLO model
-- Install the desktop launcher (double-click to run)
+
+### Install from local checkout
+
+If you already have a local copy of the repository, run the installer from within it:
+
+```bash
+cd /path/to/toctoc
+bash install.sh
+```
+
+The installer will detect the local checkout and copy the files to `~/anpr_gate/` instead of re-cloning.
 
 ### Manual setup
 
@@ -58,9 +67,6 @@ source ~/anpr_gate_env/bin/activate
 
 # Install Python dependencies
 pip install customtkinter ultralytics easyocr opencv-python pillow
-
-# Download the trained model
-curl -L -o anpr_best.pt "https://drive.google.com/uc?export=download&id=1C43R0SXR8GqnJAKDG15ggOr7U7MBjw3F"
 
 # Edit portier.conf with your camera/relay credentials
 
@@ -80,7 +86,7 @@ source ~/anpr_gate_env/bin/activate
 python3 -m anpr_gate.main
 ```
 
-The launcher script automatically creates the virtual environment on first run if it is missing.
+The launcher script (`run_gate.sh`) activates the virtual environment and runs the application. It will fail with a clear error if the virtual environment or project files are missing.
 
 ## Configuration
 
@@ -98,4 +104,4 @@ Edit `portier.conf`:
 
 - Python 3 with `python3-tk`
 - ffmpeg (for RTSP snapshot capture)
-- YOLO model (`anpr_best.pt`) — train with your dataset
+- YOLO model (`anpr_best.pt`) — included in the repository, or train with your own dataset
