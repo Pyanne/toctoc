@@ -185,84 +185,6 @@ download_model() {
     fi
 }
 
-# ── Desktop launcher ───────────────────────────────────────────────────────────
-install_desktop_launcher() {
-    section "Installing desktop launcher"
-
-    local script_src="$INSTALL_DIR/anpr_gate/run_gate.sh"
-    local script_dest="$INSTALL_DIR/anpr_gate/run_gate.sh"
-    local desktop_src="$HOME/.local/share/applications/anpr-gate-control.desktop"
-    local desktop_dest="$HOME/.local/share/applications/anpr-gate-control.desktop"
-
-    # Build run_gate.sh in-place (it lives alongside main.py in the repo)
-    if [ -f "$script_src" ]; then
-        info "run_gate.sh already present — skipping"
-    else
-        info "Creating run_gate.sh …"
-        cat > "$script_src" <<'SCRIPT'
-#!/bin/bash
-# ANPR Gate Control System – launcher script
-# Double-click or run from the application menu to launch the GUI.
-
-set -e
-
-SCRIPT_DIR=$(cd -- $(dirname -- "$0") && pwd)
-PROJECT_ROOT=$(dirname -- "$SCRIPT_DIR")
-VENV_DIR="$PROJECT_ROOT/.venv"
-
-if [ ! -d "$VENV_DIR" ]; then
-    echo '[run_gate] Creating virtual environment at .venv ...'
-    python3 -m venv "$VENV_DIR" || {
-        echo '[run_gate] ERROR: failed to create .venv — is python3-venv installed?' >&2
-        exit 1
-    }
-fi
-
-REQUIREMENTS="$SCRIPT_DIR/requirements.txt"
-if [ -f "$REQUIREMENTS" ]; then
-    "$VENV_DIR/bin/pip" install --upgrade -r "$REQUIREMENTS" -q
-else
-    "$VENV_DIR/bin/pip" install customtkinter ultralytics easyocr opencv-python pillow -q
-fi
-
-source "$VENV_DIR/bin/activate"
-cd "$SCRIPT_DIR"
-exec python3 main.py
-SCRIPT
-    fi
-    chmod +x "$script_src"
-    ok "run_gate.sh ready"
-
-    # Desktop entry — use the actual install path (dynamic, not hardcoded)
-    mkdir -p "$HOME/.local/share/applications"
-    cat > "$desktop_dest" <<DESKTOP
-[Desktop Entry]
-Version=1.0
-Name=ANPR Gate Control
-Comment=Automatic Number Plate Recognition gate controller with GUI
-Exec=$INSTALL_DIR/anpr_gate/run_gate.sh
-Icon=icon
-Terminal=false
-Type=Application
-Categories=Utility;Security;
-StartupNotify=true
-DESKTOP
-    ok "Desktop entry installed (~/.local/share/applications/anpr-gate-control.desktop)"
-    info "Exec path: $INSTALL_DIR/anpr_gate/run_gate.sh"
-
-    # Install icon to ~/.local/share/icons/ for system-wide recognition (dock, app launcher)
-    if [ -f "$INSTALL_DIR/anpr_gate/icon.png" ]; then
-        mkdir -p "$HOME/.local/share/icons"
-        cp "$INSTALL_DIR/anpr_gate/icon.png" "$HOME/.local/share/icons/icon.png"
-        ok "Icon installed (~/.local/share/icons/icon.png)"
-    fi
-
-    # Register with the desktop environment (no-op if not available)
-    if command -v update-desktop-database > /dev/null 2>&1; then
-        update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
-    fi
-    ok "Desktop launcher registered"
-}
 
 # ── Finished ───────────────────────────────────────────────────────────────────
 print_usage() {
@@ -273,13 +195,6 @@ print_usage() {
     echo ""
     echo -e "  ${BOLD}Run the application:${RESET}"
     echo -e "    python3 -m anpr_gate.main"
-    echo ""
-    echo -e "  ${BOLD}Desktop launcher (double-click):${RESET}"
-    echo -e "    ~/.local/share/applications/anpr-gate-control.desktop"
-    echo -e "    (search 'ANPR Gate Control' in your app launcher)"
-    echo ""
-    echo -e "  ${BOLD}Edit settings:${RESET}"
-    echo -e "    ${INSTALL_DIR}/portier.conf"
     echo ""
     echo -e "  ${BOLD}Deactivate when done:${RESET}"
     echo -e "    deactivate"
@@ -300,7 +215,6 @@ main() {
     create_venv
     install_python_deps
     download_model
-    install_desktop_launcher
     print_usage
 }
 
