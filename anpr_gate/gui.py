@@ -566,19 +566,18 @@ class SettingsWindow:
         scroll = CTkScrollableFrame(self._win, corner_radius=0)
         scroll.pack(fill="both", expand=True, side="top")
         scroll.grid_columnconfigure(0, weight=1)
+        scroll.grid_columnconfigure(1, weight=1)
 
-        y = 0
+        # --- Top Row: Camera (left) + Authorized Plates (right) ---
+        self._section_two_col(scroll, 0, "Camera", self._build_camera,
+                              "Authorized Plates", self._build_plates)
 
-        # --- Camera ---
-        y = self._section(scroll, y, "Camera", self._build_camera)
-        # --- ROI ---
-        y = self._section(scroll, y, "Region of Interest", self._build_roi)
-        # --- Relay ---
-        y = self._section(scroll, y, "Relay", self._build_relay)
-        # --- Polling ---
-        y = self._section(scroll, y, "Polling", self._build_polling)
-        # --- Plates ---
-        y = self._section(scroll, y, "Authorized Plates", self._build_plates)
+        # --- ROI (full width) ---
+        self._section(scroll, 1, "Region of Interest", self._build_roi)
+
+        # --- Bottom Row: Relay (left) + Polling (right) ---
+        self._section_two_col(scroll, 2, "Relay", self._build_relay,
+                              "Polling", self._build_polling)
 
         # Buttons
         btn_frame = CTkFrame(self._win, corner_radius=0)
@@ -591,11 +590,30 @@ class SettingsWindow:
     def _section(self, parent, y, title, builder):
         frame = CTkFrame(parent, corner_radius=8, border_width=1,
                          border_color="#333333")
-        frame.grid(row=y, column=0, padx=10, pady=(y > 0)*6, sticky="ew")
+        frame.grid(row=y, column=0, columnspan=2, padx=10, pady=(y > 0)*6, sticky="ew")
         CTkLabel(frame, text=title, font=("Segoe UI", 13, "bold"),
                  text_color="#3498DB").grid(
                      row=0, column=0, columnspan=2, padx=12, pady=(10, 6), sticky="w")
         builder(frame)
+        return y + 1
+
+    def _section_two_col(self, parent, y, title_left, builder_left, title_right, builder_right):
+        """Place two sections side-by-side in the same row."""
+        left = CTkFrame(parent, corner_radius=8, border_width=1, border_color="#333333")
+        left.grid(row=y, column=0, padx=(10, 4), pady=(y > 0)*6, sticky="nsew")
+        CTkLabel(left, text=title_left, font=("Segoe UI", 13, "bold"),
+                 text_color="#3498DB").grid(
+                     row=0, column=0, columnspan=2, padx=12, pady=(10, 6), sticky="w")
+        builder_left(left)
+
+        right = CTkFrame(parent, corner_radius=8, border_width=1, border_color="#333333")
+        right.grid(row=y, column=1, padx=(4, 10), pady=(y > 0)*6, sticky="nsew")
+        CTkLabel(right, text=title_right, font=("Segoe UI", 13, "bold"),
+                 text_color="#3498DB").grid(
+                     row=0, column=0, columnspan=2, padx=12, pady=(10, 6), sticky="w")
+        builder_right(right)
+
+        parent.grid_rowconfigure(y, pad=0)
         return y + 1
 
     def _entry(self, parent, row, label, section, key, width=25):
@@ -843,9 +861,12 @@ class SettingsWindow:
     def _build_plates(self, parent):
         parent.grid_columnconfigure(0, weight=1)
         plates = self.cfg.get_allowed_plates()
-        self._plates_entry = CTkEntry(parent, placeholder_text="e.g. AB-123-CD  (one per line)")
-        self._plates_entry.insert(0, "\n".join(plates))
-        self._plates_entry.grid(row=0, column=0, columnspan=2, padx=12, pady=12, sticky="ew")
+        self._plates_entry = CTkTextbox(parent, font=("Consolas", 12), corner_radius=6,
+                                        fg_color="#1A1A1A", text_color="#CCCCCC",
+                                        border_width=0)
+        self._plates_entry.insert("end", "\n".join(plates))
+        self._plates_entry.grid(row=1, column=0, columnspan=2, padx=12, pady=8, sticky="nsew")
+        parent.grid_rowconfigure(1, weight=1)
 
     def _save(self):
         cfg = self.cfg
@@ -876,7 +897,7 @@ class SettingsWindow:
             except ValueError:
                 pass
         # Plates
-        raw = self._plates_entry.get()
+        raw = self._plates_entry.get("1.0", "end").strip()
         plates = [p.strip().upper() for p in raw.replace(",", "\n").splitlines() if p.strip()]
         cfg.set_allowed_plates(plates)
         cfg.save()
