@@ -22,4 +22,5 @@ fi
 source "$VENV_DIR/bin/activate"
 export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
+cd "$PROJECT_DIR"
 exec python3 -m anpr_gate.main
