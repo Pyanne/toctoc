@@ -69,8 +69,6 @@ source ~/anpr_gate_env/bin/activate
 pip install customtkinter ultralytics easyocr opencv-python pillow
 
 # Edit portier.conf with your camera/relay credentials
-
-python3 -m anpr_gate.main
 ```
 
 ### Launch
