@@ -84,6 +84,8 @@ class ANPR:
             "I": "1", "i": "1",
             "l": "1",  # lowercase L commonly misread as 1
             "O": "0", "o": "0",
+            "U": "V",  # U never appears; likely misread V
+            "u": "V",
         }
         corrected = []
         for ch in raw:
@@ -93,8 +95,8 @@ class ANPR:
         result = re.sub(r"[^A-Za-z0-9-]", "", result)
         result = result.upper()
 
-        # Remove characters never found in French plates (per ANPR standard)
-        result = re.sub(r"[JUWZj]", "", result)
+        # Remove characters never found in French plates (only I, O, U are excluded)
+        result = re.sub(r"[IOio]", "", result)
 
         # Strip leading/trailing boundary digits — OCR often adds phantom 1s at plate edges
         # Safe because new-format plates always have LETTERS at positions 1,2,4,5,7
