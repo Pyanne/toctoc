@@ -321,19 +321,25 @@ class ANGUIGate:
         If no detector is configured, returns "unknown" (fallback).
         """
         if not self._gate_detector:
+            print("[GATE DEBUG] _gate_detector is None")
             return "unknown"
         if not self._grab_gate_snapshot:
+            print("[GATE DEBUG] _grab_gate_snapshot is None")
             return "unknown"
         try:
-            self._grab_gate_snapshot(
+            ok = self._grab_gate_snapshot(
                 self._gate_cam_url, self._gate_cam_auth, self._gate_snap_path
             )
+            print(f"[GATE DEBUG] snapshot grab: {ok}, path={self._gate_snap_path}, exists={os.path.exists(self._gate_snap_path)}")
             if not os.path.exists(self._gate_snap_path):
+                print("[GATE DEBUG] snapshot file missing after grab")
                 return "unknown"
             state = self._gate_detector.check(self._gate_snap_path)
+            print(f"[GATE DEBUG] detector.check returned: {state}")
             self._last_gate_state = state  # cache for periodic checks
             return state
-        except Exception:
+        except Exception as ex:
+            print(f"[GATE DEBUG] exception: {type(ex).__name__}: {ex}")
             return "unknown"
 
     # ------------------------------------------------------------------
