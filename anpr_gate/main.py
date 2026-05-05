@@ -74,7 +74,7 @@ def main():
     print(f"  Model:      {model_path}")
     print(f"  Camera:     {cfg.get('camera', 'host', '?')}:{cfg.getint('camera', 'port', 554)}")
     print(f"  Relay:      {relay_cfg['host']}")
-    print(f"  Gate cam:   {gate_cfg['host']}:{gate_cfg['port']}")
+    print(f"  Gate cam:   {gate_cam_cfg['host']}:{gate_cam_cfg['port']}")
     print(f"  Plates:     {len(cfg.get_allowed_plates())} authorized")
     if detector:
         print(f"  Gate detect:  ENABLED (reopen check every {reopen_check_interval}s)")
