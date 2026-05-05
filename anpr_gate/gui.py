@@ -48,6 +48,7 @@ class ANGUIGate:
     COL_FRAME_BG    = "#111111"
 
     def __init__(self, config_manager, relay, anpr, grab_snapshot_fn=None,
+                 grab_gate_snapshot_fn=None,
                  gate_detector=None, gate_snap_path="/tmp/gate_snapshot.jpg",
                  gate_cam_url=None, gate_cam_auth=None, reopen_check_interval=180):
         self.cfg = config_manager
