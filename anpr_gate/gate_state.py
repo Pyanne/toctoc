@@ -31,8 +31,10 @@ class GateStateDetector:
                 return "unknown"
             img = self._load_gray(image_path)
             roi = img[self._roiy1:self._roiy2, self._roix1:self._roix2]
-            diff_day = float(np.abs(roi - self._ref_day).mean())
-            diff_night = float(np.abs(roi - self._ref_night).mean())
+            diff_day = float(np.abs(roi - self._ref_day[self._roiy1:self._roiy2,
+                                                         self._roix1:self._roix2]).mean())
+            diff_night = float(np.abs(roi - self._ref_night[self._roiy1:self._roiy2,
+                                                            self._roix1:self._roix2]).mean())
             return "closed" if min(diff_day, diff_night) < self._threshold else "open"
         except Exception:
             return "unknown"
@@ -42,8 +44,10 @@ class GateStateDetector:
         try:
             img = self._load_gray(image_path)
             roi = img[self._roiy1:self._roiy2, self._roix1:self._roix2]
-            dd = float(np.abs(roi - self._ref_day).mean())
-            dn = float(np.abs(roi - self._ref_night).mean())
+            dd = float(np.abs(roi - self._ref_day[self._roiy1:self._roiy2,
+                                                  self._roix1:self._roix2]).mean())
+            dn = float(np.abs(roi - self._ref_night[self._roiy1:self._roiy2,
+                                                   self._roix1:self._roix2]).mean())
             return {"diff_day": round(dd, 1), "diff_night": round(dn, 1),
                     "min_diff": round(min(dd, dn), 1)}
         except Exception:
