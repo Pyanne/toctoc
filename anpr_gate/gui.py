@@ -78,6 +78,7 @@ class ANGUIGate:
         self._reopen_check_interval = reopen_check_interval or 180
         self._last_gate_state = "unknown"
         self._last_reopen_check = 0.0
+        self._last_rel_check = 0.0
 
         # Stats
         self._stats = {"total": 0, "authorized": 0, "denied": 0}
@@ -186,6 +187,10 @@ class ANGUIGate:
 
         # Check camera connectivity at startup
         self._check_camera_connectivity()
+
+        # Initial gate state check (do it right away, not after 3 min)
+        if self._gate_detector:
+            self._root.after(100, self._periodic_gate_check)
 
         # Start detection automatically
         self._on_start()
