@@ -504,15 +504,15 @@ class ANGUIGate:
                 self._root.after(0, lambda p=plate, a=authorized, g=gate_opened:
                     self._on_detection(p, a, g))
 
-                # Periodic gate state check (even when idle)
-                if self._gate_detector:
-                    if now - self._last_rel_check > self._reopen_check_interval:
-                        self._last_rel_check = now
-                        # Do a background gate state check
-                        self._root.after(0, self._periodic_gate_check)
-
             else:
                 time.sleep(0.5)
+
+            # Periodic gate state check — runs every reopen_check_interval seconds
+            # regardless of cooldown/detection state
+            if self._gate_detector:
+                if now - self._last_rel_check > self._reopen_check_interval:
+                    self._last_rel_check = now
+                    self._root.after(0, self._periodic_gate_check)
 
     def _periodic_gate_check(self):
         """Background gate state check when no ANPR event is happening."""
