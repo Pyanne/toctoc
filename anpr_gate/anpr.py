@@ -1,5 +1,6 @@
 """Automatic Number Plate Recognition using Ultralytics YOLO and EasyOCR."""
 
+import os
 import re
 import subprocess
 
