@@ -36,7 +36,7 @@ snapshot_path = /ISAPI/Streaming/channels/101/picture
 [gate_detector]
 ref_day_path = refs/ref_close_day.jpg
 ref_night_path = refs/ref_close_night.jpg
-threshold = 20.0
+threshold = 35.0
 enabled = True
 reopen_check_interval = 180
 

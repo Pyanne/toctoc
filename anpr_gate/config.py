@@ -229,7 +229,7 @@ relay_ping_interval = 1800
         return {
             'ref_day_path': self.get('gate_detector', 'ref_day_path', ''),
             'ref_night_path': self.get('gate_detector', 'ref_night_path', ''),
-            'threshold': self.getfloat('gate_detector', 'threshold', 20.0),
+            'threshold': self.getfloat('gate_detector', 'threshold', 35.0),
             'enabled': self.getboolean('gate_detector', 'enabled', True),
             'reopen_check_interval': self.getint('gate_detector',
                                                   'reopen_check_interval', 180),
