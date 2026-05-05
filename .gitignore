@@ -28,7 +28,7 @@ plaques.d/
 
 # Temporary images
 *.jpg
-!anpr_gate/anpr.py
+!anpr_gate/refs/*.jpg
 
 # Claude Code settings
 CLAUDE.md

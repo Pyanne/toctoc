@@ -202,6 +202,27 @@ def grab_snapshot(rtsp_url: str, output_path: str = "/tmp/anpr_snapshot.jpg") ->
         return False
 
 
+def grab_gate_snapshot(snapshot_url: str, auth: str,
+                       snap_path: str) -> bool:
+    """Grab a single frame from the gate camera via HTTP digest auth.
+
+    The gate camera lives at ``http://192.168.20.22:82`` and exposes
+    Hikvision ISAPI ``/Streaming/channels/101/picture``.
+    """
+    import shutil
+    cmd = [
+        "curl", "-s", "--connect-timeout", "5",
+        "-u", auth, "--digest",
+        snapshot_url,
+        "-o", snap_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=10)
+        return result.returncode == 0 and os.path.getsize(snap_path) > 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
 def build_rtsp_url(host: str, port: int, user: str, password: str, path: str) -> str:
     """Build RTSP URL from camera configuration."""
     return f"rtsp://{user}:{password}@{host}:{port}{path}"
