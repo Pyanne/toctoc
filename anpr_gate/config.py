@@ -67,10 +67,14 @@ relay_ping_interval = 1800
 
     def _load_or_create(self):
         """Load existing config or create default one."""
+        # Always read defaults first, then overlay user config
+        # so new sections from DEFAULT_CONFIG are available even
+        # when upgrading from an older portier.conf
+        self.config.read_string(self.DEFAULT_CONFIG)
         if os.path.exists(self.config_path):
             self.config.read(self.config_path)
         else:
-            self._create_default()
+            self.save()
 
     def _create_default(self):
         """Create default configuration file."""
@@ -225,7 +229,7 @@ relay_ping_interval = 1800
         return {
             'ref_day_path': self.get('gate_detector', 'ref_day_path', ''),
             'ref_night_path': self.get('gate_detector', 'ref_night_path', ''),
-            'threshold': self.getfloat('gate_detector', 'threshold', 20.0),
+            'threshold': self.getfloat('gate_detector', 'threshold', 35.0),
             'enabled': self.getboolean('gate_detector', 'enabled', True),
             'reopen_check_interval': self.getint('gate_detector',
                                                   'reopen_check_interval', 180),

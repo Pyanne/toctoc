@@ -48,6 +48,7 @@ class ANGUIGate:
     COL_FRAME_BG    = "#111111"
 
     def __init__(self, config_manager, relay, anpr, grab_snapshot_fn=None,
+                 grab_gate_snapshot_fn=None,
                  gate_detector=None, gate_snap_path="/tmp/gate_snapshot.jpg",
                  gate_cam_url=None, gate_cam_auth=None, reopen_check_interval=180):
         self.cfg = config_manager
@@ -77,6 +78,7 @@ class ANGUIGate:
         self._reopen_check_interval = reopen_check_interval or 180
         self._last_gate_state = "unknown"
         self._last_reopen_check = 0.0
+        self._last_rel_check = 0.0
 
         # Stats
         self._stats = {"total": 0, "authorized": 0, "denied": 0}
@@ -185,6 +187,10 @@ class ANGUIGate:
 
         # Check camera connectivity at startup
         self._check_camera_connectivity()
+
+        # Initial gate state check (do it right away, not after 30 min)
+        if self._gate_detector:
+            self._root.after(100, self._do_periodic_gate_check)
 
         # Start detection automatically
         self._on_start()
@@ -319,10 +325,10 @@ class ANGUIGate:
         if not self._grab_gate_snapshot:
             return "unknown"
         try:
-            self._grab_gate_snapshot(
+            ok = self._grab_gate_snapshot(
                 self._gate_cam_url, self._gate_cam_auth, self._gate_snap_path
             )
-            if not os.path.exists(self._gate_snap_path):
+            if not ok or not os.path.exists(self._gate_snap_path):
                 return "unknown"
             state = self._gate_detector.check(self._gate_snap_path)
             self._last_gate_state = state  # cache for periodic checks
@@ -401,11 +407,15 @@ class ANGUIGate:
         while self._running and not self._shutdown_flag.is_set():
             now = time.time()
 
-            # Relay health check
+            # Relay health check + periodic gate state check
             if now - last_ping >= ping_int:
                 relay_online = relay.is_online()
                 self._update_relay_status(relay_online)
                 last_ping = now
+                # Check gate state at relay ping interval (not reopen_check_interval)
+                if self._gate_detector:
+                    threading.Thread(target=self._do_periodic_gate_check,
+                                    daemon=True).start()
 
             # Cooldown check
             if in_cooldown and now >= cooldown_until:
@@ -498,24 +508,18 @@ class ANGUIGate:
                 self._root.after(0, lambda p=plate, a=authorized, g=gate_opened:
                     self._on_detection(p, a, g))
 
-                # Periodic gate state check (even when idle)
-                if self._gate_detector:
-                    if now - self._last_rel_check > self._reopen_check_interval:
-                        self._last_rel_check = now
-                        # Do a background gate state check
-                        self._root.after(0, self._periodic_gate_check)
-
             else:
                 time.sleep(0.5)
 
-    def _periodic_gate_check(self):
-        """Background gate state check when no ANPR event is happening."""
-        threading.Thread(target=self._do_periodic_gate_check, daemon=True).start()
-
     def _do_periodic_gate_check(self):
-        if self._gate_detector:
-            state = self._check_gate_state_safe()
-            self._update_gate_label(state)
+        """Check gate state at relay ping interval. If open, trigger auto-close."""
+        if not self._gate_detector:
+            return
+        state = self._check_gate_state_safe()
+        self._update_gate_label(state)
+        if state == "open":
+            # Gate has been open since relay ping check — start the 3-min auto-close timer
+            self._check_and_reopen_stuck_gate(time.time())
 
     def _update_frame_display(self, image_path: str):
         """Update the camera frame label from a file path (called from polling thread)."""

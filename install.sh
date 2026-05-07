@@ -149,11 +149,11 @@ create_venv() {
 install_python_deps() {
     section "Installing Python packages"
 
-    info "Installing: customtkinter ultralytics easyocr opencv-python pillow"
+    info "Installing: customtkinter ultralytics easyocr opencv-python pillow numpy pi-heif"
 
     # Show progress bar for long installs
     "$VENV_DIR/bin/pip" install \
-        customtkinter ultralytics easyocr opencv-python pillow numpy \
+        customtkinter ultralytics easyocr opencv-python pillow numpy pi-heif \
         --progress-bar on --no-warn-script-location
 
     ok "Python packages installed"
