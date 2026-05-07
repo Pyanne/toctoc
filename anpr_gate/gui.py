@@ -47,7 +47,9 @@ class ANGUIGate:
     COL_ALERT_FG    = "#C0392B"
     COL_FRAME_BG    = "#111111"
 
-    def __init__(self, config_manager, relay, anpr, grab_snapshot_fn=None):
+    def __init__(self, config_manager, relay, anpr, grab_snapshot_fn=None,
+                 gate_detector=None, gate_snap_path="/tmp/gate_snapshot.jpg",
+                 gate_cam_url=None, gate_cam_auth=None, reopen_check_interval=180):
         self.cfg = config_manager
         self.relay = relay
         self.anpr = anpr
@@ -65,6 +67,16 @@ class ANGUIGate:
         self._log_entries: list[DetectionEvent] = []
         self._current_tk_image = None   # displayed frame tkinter image
         self._shutdown_flag = threading.Event()
+
+        # Gate state detection (optional)
+        self._gate_detector = gate_detector
+        self._grab_gate_snapshot = grab_gate_snapshot_fn
+        self._gate_cam_url = gate_cam_url
+        self._gate_cam_auth = gate_cam_auth
+        self._gate_snap_path = gate_snap_path
+        self._reopen_check_interval = reopen_check_interval or 180
+        self._last_gate_state = "unknown"
+        self._last_reopen_check = 0.0
 
         # Stats
         self._stats = {"total": 0, "authorized": 0, "denied": 0}
@@ -214,12 +226,13 @@ class ANGUIGate:
         self._lbl_frame = CTkLabel(left, text="")
         self._lbl_frame.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
 
-        # --- Right: Relay status + next polling info ---
+        # --- Right: Relay status + Gate state + next polling info ---
         right = CTkFrame(body, corner_radius=8, fg_color="#1A1A1A")
         right.grid(row=0, column=1, padx=(0, 8), pady=8, sticky="nsew")
         right.grid_rowconfigure(0, weight=0)
         right.grid_rowconfigure(1, weight=0)
-        right.grid_rowconfigure(2, weight=1)
+        right.grid_rowconfigure(2, weight=0)
+        right.grid_rowconfigure(3, weight=1)
 
         CTkLabel(right, text="Relay Status",
                  font=("Segoe UI", 11, "bold"), text_color="#888888").grid(
@@ -229,13 +242,32 @@ class ANGUIGate:
             font=("Consolas", 14, "bold"), text_color=self.COL_AUTHORIZED)
         self._lbl_relay.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="w")
 
+        gate_label_text = "Gate: --" if not self._gate_detector else "Gate: checking..."
+        if self._gate_detector:
+            CTkLabel(right, text="Gate State",
+                     font=("Segoe UI", 11, "bold"), text_color="#888888").grid(
+                         row=2, column=0, padx=12, pady=(0, 4), sticky="w")
+            self._lbl_gate = CTkLabel(
+                right, text=gate_label_text,
+                font=("Consolas", 14, "bold"))
+            self._lbl_gate.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="w")
+        else:
+            # No detector -- show that it's disabled
+            CTkLabel(right, text="Gate State",
+                     font=("Segoe UI", 11, "bold"), text_color="#888888").grid(
+                         row=2, column=0, padx=12, pady=(0, 4), sticky="w")
+            self._lbl_gate = CTkLabel(
+                right, text="DISABLED",
+                font=("Consolas", 14, "bold"), text_color="#888888")
+            self._lbl_gate.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="w")
+
         CTkLabel(right, text="Poll Info",
                  font=("Segoe UI", 11, "bold"), text_color="#888888").grid(
-                     row=2, column=0, padx=12, pady=(0, 4), sticky="w")
+                     row=4, column=0, padx=12, pady=(0, 4), sticky="w")
         self._lbl_poll = CTkLabel(
             right, text="—",
             font=("Consolas", 12), text_color="#AAAAAA")
-        self._lbl_poll.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="w")
+        self._lbl_poll.grid(row=5, column=0, padx=12, pady=(0, 12), sticky="w")
 
     def _build_log(self):
         log_frame = CTkFrame(self._content, corner_radius=0, fg_color="#111111")
@@ -259,13 +291,44 @@ class ANGUIGate:
     def _on_gate(self):
         """Manually open the gate."""
         def work():
-            self._root.after(0, lambda: self._set_status("Opening gate…", self.COL_NEUTRAL))
+            self._root.after(0, lambda: self._set_status("Opening gate...", self.COL_NEUTRAL))
+            # Safety check if detector is available
+            gate_state = self._check_gate_state_safe()
+            if gate_state == "open":
+                self._root.after(0, lambda: self._set_status(
+                    "Gate already OPEN", self.COL_AUTHORIZED))
+                return
             ok = self.relay.open()
             if ok:
                 self._root.after(0, lambda: self._set_status("Gate opened!", self.COL_AUTHORIZED))
             else:
                 self._root.after(0, lambda: self._set_status("Gate open FAILED", self.COL_DENIED))
         threading.Thread(target=work, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Gate state detection
+    # ------------------------------------------------------------------
+
+    def _check_gate_state_safe(self) -> str:
+        """Check gate state using the detector. Returns "closed"/"open"/"unknown".
+
+        If no detector is configured, returns "unknown" (fallback).
+        """
+        if not self._gate_detector:
+            return "unknown"
+        if not self._grab_gate_snapshot:
+            return "unknown"
+        try:
+            self._grab_gate_snapshot(
+                self._gate_cam_url, self._gate_cam_auth, self._gate_snap_path
+            )
+            if not os.path.exists(self._gate_snap_path):
+                return "unknown"
+            state = self._gate_detector.check(self._gate_snap_path)
+            self._last_gate_state = state  # cache for periodic checks
+            return state
+        except Exception:
+            return "unknown"
 
     # ------------------------------------------------------------------
     # Detection loop control
@@ -404,9 +467,29 @@ class ANGUIGate:
                 # Open gate if authorized and relay is online
                 gate_opened = False
                 if authorized and relay_online:
-                    gate_opened = relay.open()
-                    in_cooldown = True
-                    cooldown_until = now + cooldown
+                    # Safety check: verify gate is actually closed before triggering
+                    gate_state = self._check_gate_state_safe()
+                    if gate_state == "closed":
+                        gate_opened = relay.open()
+                        in_cooldown = True
+                        cooldown_until = now + cooldown
+                    elif gate_state == "open":
+                        # Gate is already open (opened by remote or other means)
+                        # Do NOT pulse the relay - that would close it on the vehicle
+                        print("[%s] Gate already OPEN – skipping relay pulse (safe)" %
+                              datetime.now().strftime('%H:%M:%S'))
+                        self._root.after(0, lambda: self._set_status(
+                            "Gate already OPEN – relay skipped (safe)", self.COL_AUTHORIZED))
+                        in_cooldown = True
+                        cooldown_until = now + cooldown
+                        gate_opened = True  # gate IS open, just not by us
+                    else:
+                        # Unknown/error – fallback: still open (existing behaviour)
+                        print("[%s] Gate state UNKNOWN – falling back to blind open" %
+                              datetime.now().strftime('%H:%M:%S'))
+                        gate_opened = relay.open()
+                        in_cooldown = True
+                        cooldown_until = now + cooldown
                 elif authorized and not relay_online:
                     self._root.after(0, lambda: self._set_status(
                         "RELAY OFFLINE – gate not opened", self.COL_OFFLINE))
@@ -414,8 +497,25 @@ class ANGUIGate:
                 # Update GUI with result
                 self._root.after(0, lambda p=plate, a=authorized, g=gate_opened:
                     self._on_detection(p, a, g))
+
+                # Periodic gate state check (even when idle)
+                if self._gate_detector:
+                    if now - self._last_rel_check > self._reopen_check_interval:
+                        self._last_rel_check = now
+                        # Do a background gate state check
+                        self._root.after(0, self._periodic_gate_check)
+
             else:
                 time.sleep(0.5)
+
+    def _periodic_gate_check(self):
+        """Background gate state check when no ANPR event is happening."""
+        threading.Thread(target=self._do_periodic_gate_check, daemon=True).start()
+
+    def _do_periodic_gate_check(self):
+        if self._gate_detector:
+            state = self._check_gate_state_safe()
+            self._update_gate_label(state)
 
     def _update_frame_display(self, image_path: str):
         """Update the camera frame label from a file path (called from polling thread)."""
@@ -459,9 +559,45 @@ class ANGUIGate:
                 self._alert_frame.grid_remove()
             else:
                 self._lbl_relay.configure(text="OFFLINE", text_color=self.COL_OFFLINE)
-                self._show_banner("  RELAY OFFLINE – Gate cannot open",
+                self._show_banner("⚠️  RELAY OFFLINE – Gate cannot open",
                                   self.COL_ALERT_FG, self.COL_ALERT_BG)
         self._root.after(0, work)
+
+    def _update_gate_label(self, state: str):
+        """Update the gate state label in the UI with appropriate color."""
+        color_map = {"closed": self.COL_AUTHORIZED, "open": "#FF9800", "unknown": "#888888"}
+        state_text = {"closed": "Gate: CLOSED", "open": "Gate: OPEN", "unknown": "Gate: ??"}
+        self._root.after(0, lambda: self._lbl_gate.configure(
+            text=state_text.get(state, "Gate: ??"),
+            text_color=color_map.get(state, "#888888")
+        ))
+
+    def _check_and_reopen_stuck_gate(self, now: float):
+        """If the gate has been open for longer than reopen_check_interval,
+        close it automatically. This handles the case where someone opens
+        the gate with a remote and it stays open all day."""
+        if self._last_gate_state != "open":
+            return
+        if now - self._last_reopen_check < self._reopen_check_interval:
+            return
+        self._last_reopen_check = now
+        # Re-check current state
+        current_state = self._check_gate_state_safe()
+        if current_state == "open":
+            print("[%s] Gate has been open for %ds – automatically closing" %
+                  (datetime.now().strftime('%H:%M:%S'), self._reopen_check_interval))
+            self._root.after(0, lambda: self._set_status(
+                "AUTO-CLOSING gate (open > %ds)" % self._reopen_check_interval, "#E67E22"))
+            threading.Thread(target=self._auto_close_gate, daemon=True).start()
+
+    def _auto_close_gate(self):
+        """Close the gate automatically (runs in background thread)."""
+        try:
+            self.relay.open()  # relay is toggle
+            self._root.after(0, lambda: self._set_status(
+                "Gate auto-closed", self.COL_AUTHORIZED))
+        except Exception as e:
+            print("[%s] Auto-close failed: %s" % (datetime.now().strftime('%H:%M:%S'), e))
 
     def _on_detection(self, plate: str, authorized: bool, gate_opened: bool):
         """Called on the GUI thread when a plate is detected."""

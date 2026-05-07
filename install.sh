@@ -153,7 +153,7 @@ install_python_deps() {
 
     # Show progress bar for long installs
     "$VENV_DIR/bin/pip" install \
-        customtkinter ultralytics easyocr opencv-python pillow \
+        customtkinter ultralytics easyocr opencv-python pillow numpy \
         --progress-bar on --no-warn-script-location
 
     ok "Python packages installed"

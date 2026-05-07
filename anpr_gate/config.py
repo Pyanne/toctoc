@@ -35,6 +35,20 @@ url_open = /30000/07
 url_close = /30000/06
 pulse_duration = 1
 
+[gate_camera]
+host = <YOUR_GATE_CAMERA_HOST>
+port = 80
+user = <YOUR_GATE_CAMERA_USER>
+password = <YOUR_GATE_CAMERA_PASSWORD>
+snapshot_path = /ISAPI/Streaming/channels/101/picture
+
+[gate_detector]
+ref_day_path = refs/ref_close_day.jpg
+ref_night_path = refs/ref_close_night.jpg
+threshold = 20.0
+enabled = True
+reopen_check_interval = 180
+
 [polling]
 poll_interval = 2
 cooldown_after_detection = 75
@@ -189,3 +203,42 @@ relay_ping_interval = 1800
             'cooldown_after_detection': self.getint('polling', 'cooldown_after_detection', 75),
             'relay_ping_interval': self.getint('polling', 'relay_ping_interval', 1800),
         }
+
+    def get_all_gate_camera_config(self) -> Dict:
+        """Get all gate camera configuration as a dict."""
+        return {
+            'host': self.get('gate_camera', 'host', 'localhost'),
+            'port': self.getint('gate_camera', 'port', 80),
+            'user': self.get('gate_camera', 'user', ''),
+            'password': self.get('gate_camera', 'password', ''),
+            'snapshot_path': self.get('gate_camera', 'snapshot_path',
+                                      '/ISAPI/Streaming/channels/101/picture'),
+        }
+
+    def get_gate_camera_auth(self) -> str:
+        """Return "user:password" for gate camera digest auth."""
+        cfg = self.get_all_gate_camera_config()
+        return f"{cfg['user']}:{cfg['password']}"
+
+    def get_all_gate_detector_config(self) -> Dict:
+        """Get gate-detector configuration as a dict."""
+        return {
+            'ref_day_path': self.get('gate_detector', 'ref_day_path', ''),
+            'ref_night_path': self.get('gate_detector', 'ref_night_path', ''),
+            'threshold': self.getfloat('gate_detector', 'threshold', 20.0),
+            'enabled': self.getboolean('gate_detector', 'enabled', True),
+            'reopen_check_interval': self.getint('gate_detector',
+                                                  'reopen_check_interval', 180),
+        }
+
+    def resolve_gate_refs(self, base_dir: str) -> tuple:
+        """Resolve gate detector reference image paths (relative or absolute)."""
+        cfg = self.get_all_gate_detector_config()
+        day = cfg['ref_day_path']
+        night = cfg['ref_night_path']
+        if not os.path.isabs(day):
+            day = os.path.join(base_dir, day)
+        if not os.path.isabs(night):
+            night = os.path.join(base_dir, night)
+        return day, night
+
