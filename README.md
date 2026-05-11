@@ -13,7 +13,7 @@ testable architecture:
 - **Improved OCR** — perspective correction, adaptive thresholding, bilateral filtering (replaces simple bilateral + Otsu)
 - **HTTP relay** — uses `requests` library instead of subprocess curl
 - **Gate state machine** — OpenCV-based pixel-diff detection with safety interlocks
-- **Config validation** — Pydantic/dataclass-based with YAML support, backward-compatible INI loading
+- **Config validation** — typed dataclass validation with YAML-only config
 - **Headless mode** — runs without X11 via `--headless` flag
 - **DI container** — dependency injection for easy testing
 - **Structured logging** — JSON logs to file + readable console output
@@ -43,7 +43,7 @@ anpr_gate/
   __init__.py          # Package init
   __about__.py         # Version metadata
   main.py              # Entry point (CLI argument parsing)
-  config.py            # Config loading/validation (YAML + INI)
+  config.py            # Config loading/validation (YAML only)
   container.py         # DI container — assembles all services
 
   camera/
@@ -80,7 +80,7 @@ anpr_gate/
 
 ## Configuration
 
-Edit `portier.yaml` (or use the old `portier.conf` format for backward compatibility):
+Edit `portier.yaml`:
 
 | Section | Key | Default | Description |
 |---------|-----|---------|-------------|

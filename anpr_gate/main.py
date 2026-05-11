@@ -23,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="ANPR Gate Control System")
     p.add_argument(
         "--config", "-c", type=str, default=None,
-        help="Path to config file (YAML or INI). Default: portier.conf in project root.",
+        help="Path to YAML config file. Default: portier.yaml in project root.",
     )
     p.add_argument(
         "--headless", action="store_true",
@@ -42,24 +42,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def find_config() -> str:
-    """Find the config file: try several common locations.
-
-    Prefer YAML over legacy INI when both exist.
-    """
+    """Find the YAML config file from common locations."""
     candidates = [
         "portier.yaml",
         "portier.yml",
-        "portier.conf",
-        "portier.conf.example",
         "configs/default.yaml",
-        "configs/portier.conf",
         "/etc/toctoc/portier.yaml",
-        "/etc/toctoc/portier.conf",
     ]
     for c in candidates:
         if Path(c).exists():
             return c
-    return "portier.conf"
+    return "portier.yaml"
 
 
 def main() -> int:

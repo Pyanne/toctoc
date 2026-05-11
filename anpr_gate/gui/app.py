@@ -873,7 +873,7 @@ class SettingsWindow:
         self._cfg.allowed_plates = plates
 
         from anpr_gate.config import write_yaml
-        write_yaml(self._cfg, "portier.conf")
+        write_yaml(self._cfg, "portier.yaml")
 
         self._gui._refresh_poll_info() if hasattr(self._gui, '_refresh_poll_info') else None
         self._win.destroy()

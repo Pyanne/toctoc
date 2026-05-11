@@ -1,8 +1,4 @@
-"""Configuration management with Pydantic validation and YAML/INI support.
-
-Supports both a primary YAML config and backward-compatible INI import
-from the old portier.conf format.
-"""
+"""Configuration management with typed validation and YAML support only."""
 
 from __future__ import annotations
 
@@ -291,105 +287,20 @@ def _dict_to_config(d: dict[str, Any]) -> AppConfig:
     )
 
 
-def load_ini(path: str | Path) -> AppConfig:
-    """Load config from the old INI-style portier.conf (backward compat)."""
-    import configparser
-
-    path = Path(path)
-    if not path.exists():
-        raise ConfigError(f"Config file not found: {path}")
-
-    cp = configparser.ConfigParser()
-    cp.read(path)
-
-    def _s(section, key, fallback=""):
-        try:
-            return cp.get(section, key)
-        except (configparser.NoSectionError, configparser.NoOptionError):
-            return fallback
-
-    def _i(section, key, fallback=0):
-        try:
-            return cp.getint(section, key)
-        except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
-            return fallback
-
-    def _f(section, key, fallback=0.0):
-        try:
-            return cp.getfloat(section, key)
-        except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
-            return fallback
-
-    def _b(section, key, fallback=False):
-        try:
-            return cp.getboolean(section, key)
-        except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
-            return fallback
-
-    # Build allowed plates list
-    plates: list[str] = []
-    if cp.has_section("plates"):
-        for k, _ in cp.items("plates"):
-            if k != "__name__":
-                plates.append(k.strip().upper())
-
-    return AppConfig(
-        camera=CameraConfig(
-            host=_s("camera", "host"),
-            port=_i("camera", "port", 554),
-            user=_s("camera", "user"),
-            password=_s("camera", "password"),
-            path=_s("camera", "path"),
-            roi_x1=_i("camera.roi", "x1"),
-            roi_y1=_i("camera.roi", "y1"),
-            roi_x2=_i("camera.roi", "x2"),
-            roi_y2=_i("camera.roi", "y2"),
-        ),
-        relay=RelayConfig(
-            host=_s("relay", "host"),
-            url_open=_s("relay", "url_open"),
-            url_close=_s("relay", "url_close"),
-            pulse_duration=_f("relay", "pulse_duration", 1.0),
-        ),
-        gate_camera=GateCameraConfig(
-            host=_s("gate_camera", "host"),
-            port=_i("gate_camera", "port", 80),
-            user=_s("gate_camera", "user"),
-            password=_s("gate_camera", "password"),
-            snapshot_path=_s("gate_camera", "snapshot_path"),
-        ),
-        gate_detector=GateDetectorConfig(
-            ref_day_path=_s("gate_detector", "ref_day_path"),
-            ref_night_path=_s("gate_detector", "ref_night_path"),
-            threshold=_f("gate_detector", "threshold", 35.0),
-            enabled=_b("gate_detector", "enabled", True),
-            reopen_check_interval=_i("gate_detector", "reopen_check_interval", 180),
-        ),
-        ocr=OCRConfig(
-            confidence_threshold=_f("ocr", "confidence_threshold", 0.15),
-        ),
-        polling=PollingConfig(
-            poll_interval=_i("polling", "poll_interval", 2),
-            cooldown_after_detection=_i("polling", "cooldown_after_detection", 75),
-        ),
-        allowed_plates=plates,
-    )
-
-
 def load(path: str | Path) -> AppConfig:
-    """Auto-detect format and load config."""
+    """Load and validate config from a YAML file."""
     path = Path(path)
     if not path.exists():
         raise ConfigError(f"Config file not found: {path}")
 
     ext = path.suffix.lower()
-    if ext in (".yaml", ".yml"):
-        return load_yaml(path)
-    elif ext in (".conf", ".ini", ".cfg", ""):
-        return load_ini(path)
-    else:
-        raise ConfigError(f"Unknown config format: {ext}")
+    if ext not in (".yaml", ".yml"):
+        raise ConfigError(
+            f"Unsupported config format '{ext or '(no extension)'}'. "
+            "Only YAML is supported. Use portier.yaml."
+        )
 
+    return load_yaml(path)
 
 def write_yaml(cfg: AppConfig, path: str | Path):
     """Write config as YAML."""

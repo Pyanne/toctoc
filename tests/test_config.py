@@ -11,7 +11,7 @@ import yaml
 from anpr_gate.config import (
     AppConfig, CameraConfig, RelayConfig, GateCameraConfig,
     GateDetectorConfig, OCRConfig, PollingConfig, ArchiveConfig,
-    load_yaml, load_ini, write_yaml, create_default, ConfigError,
+    load_yaml, load, write_yaml, create_default, ConfigError,
 )
 
 
@@ -131,27 +131,24 @@ class TestLoadYAML:
             load_yaml(tmp_path / "nonexistent.yaml")
 
 
-class TestLoadINI:
-    def test_load_portier_conf(self, tmp_path):
-        ini = tmp_path / "portier.conf"
-        ini.write_text("""
-[camera]
-host = 192.168.10.1
-port = 554
+class TestLoadYAMLEnforcement:
+    def test_load_rejects_conf(self, tmp_path):
+        conf = tmp_path / "portier.conf"
+        conf.write_text("[camera]\nhost=192.168.10.1\n")
+        with pytest.raises(ConfigError, match="Only YAML is supported"):
+            load(conf)
 
-[relay]
-host = 192.168.20.26
-url_open = /30000/07
-url_close = /30000/06
+    def test_load_rejects_no_extension(self, tmp_path):
+        p = tmp_path / "portier"
+        p.write_text("camera:\n  host: 192.168.10.1\n")
+        with pytest.raises(ConfigError, match="Only YAML is supported"):
+            load(p)
 
-[plates]
-cf938ph = 1
-ab-123-cd = 1
-""")
-        cfg = load_ini(ini)
+    def test_load_accepts_yaml(self, tmp_path):
+        p = tmp_path / "portier.yaml"
+        p.write_text("camera:\n  host: 192.168.10.1\n")
+        cfg = load(p)
         assert cfg.camera.host == "192.168.10.1"
-        assert cfg.relay.host == "192.168.20.26"
-        assert "CF938PH" in cfg.get_allowed_plates()
 
 
 class TestExportConfig:
