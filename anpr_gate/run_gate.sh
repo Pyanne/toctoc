@@ -15,9 +15,9 @@ if [ ! -d "$VENV_DIR" ]; then
     exit 1
 fi
 
-if [ ! -f "$PROJECT_DIR/anpr_gate/main.py" ]; then
+if [ ! -f "$PROJECT_DIR/main.py" ]; then
     echo "[ERROR] Project not found at $PROJECT_DIR" >&2
-    echo "Run install.sh first." >&2
+    echo "Expected main.py in launcher directory." >&2
     exit 1
 fi
 
@@ -28,7 +28,6 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 source "$VENV_DIR/bin/activate"
-export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 cd "$PROJECT_DIR"
-exec python3 -m anpr_gate.main --config "$CONFIG_FILE"
+exec python3 -m main --config "$CONFIG_FILE"
