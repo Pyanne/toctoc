@@ -1,145 +1,160 @@
-# ANPR Gate Control
+# toctoc — ANPR Gate Control System
 
-Automatic Number Plate Recognition gate control system with a CustomTkinter GUI.
+Automatic Number Plate Recognition system for automated gate control.
+Detects vehicles via RTSP camera, reads license plates with OCR, and
+controls the gate relay for authorized vehicles.
 
-## What it does
+## What's New (v2.0)
 
-- Connects to an RTSP camera stream
-- Runs YOLO-based plate detection + EasyOCR text extraction
-- Opens the gate automatically when an authorized plate is detected
-- Monitors gate state (open/closed) using a second camera and dual-reference pixel diff
-- Prevents ANPR from closing a gate that is already open (security)
-- Auto-closes the gate after a configurable timeout if left open (default 3 min)
-- Provides a real-time GUI showing camera feed, detection log, relay status, and gate state
+Complete rewrite of the original monolithic `anpr_gate/` into a modular,
+testable architecture:
 
-## Project structure
+- **Modular structure** — camera, detection, OCR, relay, gate, allowlist, archive as separate modules
+- **Improved OCR** — perspective correction, adaptive thresholding, bilateral filtering (replaces simple bilateral + Otsu)
+- **HTTP relay** — uses `requests` library instead of subprocess curl
+- **Gate state machine** — OpenCV-based pixel-diff detection with safety interlocks
+- **Config validation** — Pydantic/dataclass-based with YAML support, backward-compatible INI loading
+- **Headless mode** — runs without X11 via `--headless` flag
+- **DI container** — dependency injection for easy testing
+- **Structured logging** — JSON logs to file + readable console output
+- **19 test files** — covering config, relay, gate controller, allowlist, archive, detection, OCR
+
+## Quick Start
+
+```bash
+# Install dependencies
+pip install -e ".[gui]"
+
+# Copy and edit config
+cp portier.yaml.example portier.yaml
+nano portier.yaml
+
+# Run with GUI
+python -m anpr_gate
+
+# Run headless (server mode)
+python -m anpr_gate --headless
+```
+
+## Project Structure
 
 ```
 anpr_gate/
-├── __init__.py       # Package init
-├── anpr.py           # Detection (YOLO + EasyOCR) + gate snapshot capture
-├── relay.py          # Gate relay HTTP control
-├── config.py         # INI config manager
-├── gui.py            # CustomTkinter GUI + detection loop
-├── main.py           # Entry point
-├── gate_state.py     # Gate state detector (pixel diff, day/night refs)
-├── refs/             # Reference images for gate state detection
-│   ├── ref_close_day.jpg
-│   └── ref_close_night.jpg
-├── run_gate.sh       # Launcher script (double-clickable)
-└── icon.png          # Application icon (198×149 PNG)
+  __init__.py          # Package init
+  __about__.py         # Version metadata
+  main.py              # Entry point (CLI argument parsing)
+  config.py            # Config loading/validation (YAML + INI)
+  container.py         # DI container — assembles all services
 
-portier.conf          # Configuration file
-plaques.d/            # Archive (auto-created)
+  camera/
+    base.py            # Abstract Camera interface
+    rtsp_camera.py     # RTSP camera via OpenCV with reconnect
+    snapshot_camera.py # HTTP snapshot camera (Hikvision ISAPI)
+
+  detection/
+    base.py            # Abstract PlateDetector + Bbox dataclass
+    yolo_detector.py   # YOLOv8 plate detection
+    pixel_diff_detector.py  # Gate state via pixel diff (ref images)
+
+  ocr/
+    base.py            # Abstract OCRReader interface
+    easyocr_engine.py  # EasyOCR with improved preprocessing pipeline
+
+  relay/
+    base.py            # Abstract GateRelayBase interface
+    http_relay.py      # HTTP relay control (requests-based)
+
+  gate/
+    state.py           # GateState enum
+    controller.py      # GateController state machine + safety interlocks
+
+  allowlist/
+    manager.py         # Hot-reloadable allowlist with normalized matching
+
+  archive/
+    manager.py         # Snapshot archiving with cleanup
+
+  gui/
+    app.py             # CustomTkinter GUI (thin UI layer)
 ```
-
-## Setup
-
-### Quick install (one-liner)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/Pyanne/toctoc/master/install.sh | bash
-```
-
-This will:
-- Install system dependencies (`ffmpeg`, `curl`, `git`, `python3-tk`)
-- Clone the repository into `~/anpr_gate/`
-- Create a virtual environment at `~/anpr_gate_env/`
-- Install Python dependencies (including `numpy` and `pi-heif` for gate state detection)
-
-### Install from local checkout
-
-If you already have a local copy of the repository, run the installer from within it:
-
-```bash
-cd /path/to/toctoc
-bash install.sh
-```
-
-The installer will detect the local checkout and copy the files to `~/anpr_gate/` instead of re-cloning.
-
-### Manual setup
-
-```bash
-# Install system dependencies
-sudo apt install ffmpeg python3-tk
-
-# Clone the repository
-git clone https://github.com/Pyanne/toctoc.git ~/anpr_gate
-cd ~/anpr_gate
-
-# Create and activate a virtual environment
-python3 -m venv ~/anpr_gate_env
-source ~/anpr_gate_env/bin/activate
-
-# Install Python dependencies
-pip install customtkinter ultralytics easyocr opencv-python pillow numpy pi-heif
-
-# Edit portier.conf with your camera/relay credentials
-```
-
-### Launch
-
-**Double-click (recommended):** open `anpr_gate/run_gate.sh` in your file manager, or search for "ANPR Gate Control" in your desktop environment's application launcher (GNOME Activities / KDE Kickoff).
-
-**From terminal:**
-```bash
-cd ~/anpr_gate
-./anpr_gate/run_gate.sh
-# or
-source ~/anpr_gate_env/bin/activate
-python3 -m anpr_gate.main
-```
-
-The launcher script (`run_gate.sh`) activates the virtual environment and runs the application. It will fail with a clear error if the virtual environment or project files are missing.
 
 ## Configuration
 
-Edit `portier.conf`:
+Edit `portier.yaml` (or use the old `portier.conf` format for backward compatibility):
 
-| Section | Key | Description |
-|---------|-----|-------------|
-| `camera` | host, port, user, password, path | RTSP camera (ANPR) settings |
-| `camera.roi` | x1, y1, x2, y2 | Detection region |
-| `relay` | host, url_open, url_close, pulse_duration | Gate relay |
-| `gate_camera` | host, port, user, password, snapshot_path | HTTP gate camera (Hikvision ISAPI) |
-| `gate_detector` | ref_day_path, ref_night_path, threshold, enabled, reopen_check_interval | Gate state detector |
-| `polling` | poll_interval, cooldown_after_detection, relay_ping_interval | Timing |
-| `plates` | PLATE = 1 | Authorized plates |
+| Section | Key | Default | Description |
+|---------|-----|---------|-------------|
+| `camera` | `host` | — | RTSP camera IP |
+| `camera` | `port` | 554 | RTSP port |
+| `camera` | `path` | /h264/... | RTSP stream path |
+| `camera.roi` | `x1,y1,x2,y2` | 0,0,1920,1080 | Region of interest for detection |
+| `relay` | `host` | 192.168.20.26 | Relay controller IP |
+| `relay` | `pulse_duration` | 1.0 | How long relay stays active (seconds) |
+| `gate_detector` | `enabled` | true | Enable gate open/close detection |
+| `gate_detector` | `threshold` | 35.0 | Pixel diff sensitivity |
+| `ocr` | `confidence_threshold` | 0.15 | Minimum character confidence |
+| `polling` | `poll_interval` | 2 | Seconds between poll cycles |
+| `polling` | `cooldown_after_detection` | 75 | Seconds before next gate open |
+| `archive` | `enabled` | true | Save detection snapshots |
+| `archive` | `directory` | plaques.d | Archive output directory |
 
-### Gate camera / gate state detector
+## Gate Safety
 
-The system uses a **second camera** pointed at the gate to detect whether it is open or closed. This is configured in the `[gate_camera]` and `[gate_detector]` sections.
+The gate controller implements critical safety interlocks:
 
-**How it works:** The detector captures a snapshot from the gate camera and compares it against two reference images (one taken during day, one at night) using pixel-level difference. The minimum of the two diffs is compared to a threshold — below the threshold means "closed", above means "open".
+- **Never auto-close a remotely-opened gate** — only gates opened by the
+  ANPR system are eligible for auto-close
+- **Debounce** — minimum 2 seconds between relay pulses
+- **Gate state verification** — relay is only pulsed if gate detector
+  confirms the gate is closed (prevents double-pulse when gate is already open)
 
-**Required configuration:**
-- `[gate_camera]` — host/port/credentials of the HTTP snapshot endpoint (e.g. Hikvision ISAPI `/Streaming/channels/101/picture`)
-- `[gate_detector]` — paths to the two reference images and the diff threshold
-- Reference images must be captured with the gate in the **closed** position
+## CLI Usage
 
-**Reference images:** Capture two reference images of the closed gate under typical day and night conditions. Save them as JPEG and update `ref_day_path` and `ref_night_path` in `portier.conf`. The detector adapts to lighting by using whichever reference gives the lower diff score.
+```bash
+# Export a default config
+python -m anpr_gate --export-config portier.yaml
 
-**Threshold:** Default is 35.0. If the detector经常 misclassifies (gate closed but reads "open"), raise the threshold. If it fails to detect an open gate, lower it. The correct value depends on camera angle, lighting consistency, and image quality.
+# Run with verbose logging
+python -m anpr_gate --verbose
 
-### Relay ping interval
+# Headless mode (no GUI, suitable for systemd)
+python -m anpr_gate --headless --config /etc/toctoc/portier.yaml
+```
 
-The system periodically checks relay connectivity (`relay_ping_interval`, default 1800s / 30 min). Each check also triggers a gate state check. If the gate is found open at a relay ping, the auto-close timer starts (see below).
+## Systemd Service
 
-### Auto-close safety feature
+```bash
+# Install
+sudo cp deploy/toctoc.service /etc/systemd/system/
+sudo sed -i 's|/path/to/toctoc|/home/ced/toctoc-app|g' /etc/systemd/system/toctoc.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now toctoc-anpr
 
-If the gate is left open for more than `reopen_check_interval` seconds (default 180s / 3 min), the system will automatically close it. This prevents the gate from staying open indefinitely if a vehicle passes but the ANPR doesn't trigger a close (e.g. plate not in list, camera occlusion).
+# Logs
+journalctl -u toctoc-anpr -f
+```
 
-The auto-close fires **only** when:
-1. A periodic relay ping detects the gate is open, AND
-2. The gate has been continuously open for longer than `reopen_check_interval`
+## Requirements
 
-This is independent of ANPR detection — ANPR never closes the gate; it only opens it.
+```
+opencv-python-headless>=4.8
+numpy>=1.24
+ultralytics>=8.0
+easyocr>=1.7
+requests>=2.28
+pyyaml>=6.0
+pydantic>=2.0.0
+```
 
-## Dependencies
+Optional (for GUI):
+```
+customtkinter>=5.0
+Pillow>=10.0
+```
 
-- Python 3 with `python3-tk`
-- ffmpeg (for RTSP snapshot capture)
-- curl (for HTTP gate camera snapshots, included in system deps)
-- YOLO model (`anpr_best.pt`) — included in the repository, or train with your own dataset
-- `numpy`, `pillow`, `pi-heif` (for image processing and HEIF support)
+## Testing
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
+```

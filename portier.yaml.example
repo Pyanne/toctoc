@@ -1,0 +1,63 @@
+# ANPR Gate Control System — Default Configuration
+# ------------------------------------------------
+# Copy to portier.yaml and edit as needed.
+
+camera:
+  host: "192.168.10.10"
+  port: 554
+  user: ""
+  password: ""
+  path: "/h264/ch1/main/av_stream"
+  roi_x1: 0
+  roi_y1: 0
+  roi_x2: 1920
+  roi_y2: 1080
+  snapshot_fps: 1
+
+relay:
+  host: "192.168.20.26"
+  url_open: "/30000/07"     # pulse to open gate
+  url_close: "/30000/06"    # pulse to stop motor
+  pulse_duration: 1.0       # seconds relay stays active
+  ping_interval: 1800       # health check every 30 min
+
+gate_camera:
+  # Hikvision ISAPI snapshot camera for gate state detection
+  host: "192.168.20.22"
+  port: 82
+  user: "admin"
+  password: ""
+  snapshot_path: "/ISAPI/Streaming/channels/101/picture"
+
+gate_detector:
+  ref_day_path: "anpr_gate/refs/ref_close_day.jpg"
+  ref_night_path: "anpr_gate/refs/ref_close_night.jpg"
+  threshold: 35.0           # pixel diff threshold — lower = more sensitive
+  enabled: true
+  reopen_check_interval: 180  # auto-close after 3 minutes
+
+ocr:
+  enabled: true
+  confidence_threshold: 0.15
+  languages: ["en"]         # "en" + "fr" for French character support
+  use_gpu: false
+  preprocess_upscale: 3
+  preprocess_denoise_strength: 11
+
+polling:
+  poll_interval: 2          # seconds between detection cycles
+  cooldown_after_detection: 75  # seconds to wait after opening gate
+
+archive:
+  enabled: true
+  directory: "plaques.d"    # relative path — auto-created
+  max_age_days: 30
+  # filename format: {{ts}} {{plate}}.jpg
+  filename_fmt: "{ts} {plate}.jpg"
+
+# Authorized license plates (uppercase, format: AB-123-CD)
+allowed_plates:
+  # - CF938PH
+  # - AB-123-CD
+
+debug: false

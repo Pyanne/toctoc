@@ -1,0 +1,21 @@
+[Unit]
+Description=ANPR Gate Control System
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ced
+WorkingDirectory=/home/ced/toctoc-improve
+ExecStart=/home/ced/toctoc-improve/.venv/bin/python -m anpr_gate.main --config portier.yaml --headless
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=toctoc-anpr
+
+# Power management — prevent suspend during operation
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+
+[Install]
+WantedBy=multi-user.target
