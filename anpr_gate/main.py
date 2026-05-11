@@ -10,6 +10,7 @@ import argparse
 import logging
 import signal
 import sys
+import threading
 from pathlib import Path
 
 from anpr_gate.config import AppConfig, load, write_yaml
@@ -87,7 +88,7 @@ def main() -> int:
     logger.info("Config loaded from: %s", config_path)
 
     # Graceful shutdown
-    shutdown_event = signal.Event()
+    shutdown_event = threading.Event()
 
     def _shutdown(sig, frame):
         sig_name = signal.Signals(sig).name
