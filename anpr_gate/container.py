@@ -97,8 +97,8 @@ class Container:
         if not self.config.gate_detector.enabled:
             return None
         if self._gate_detector is None:
-            from anpr_gate.detection.pixel_diff_detector import PixelDiffDetector
-            self._gate_detector = PixelDiffDetector(
+            from anpr_gate.detection.pixel_diff_detector import GateStateDetector
+            self._gate_detector = GateStateDetector(
                 ref_day=self.config.gate_detector.ref_day_path,
                 ref_night=self.config.gate_detector.ref_night_path,
                 roi=self.config.camera.roi(),
