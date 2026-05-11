@@ -28,6 +28,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 source "$VENV_DIR/bin/activate"
+export PYTHONPATH="$(dirname "$PROJECT_DIR")${PYTHONPATH:+:$PYTHONPATH}"
 
-cd "$PROJECT_DIR"
-exec python3 -m main --config "$CONFIG_FILE"
+cd "$(dirname "$PROJECT_DIR")"
+exec python3 -m anpr_gate.main --config "$CONFIG_FILE"

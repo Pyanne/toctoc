@@ -26,8 +26,8 @@ testable architecture:
 pip install -e ".[gui]"
 
 # Copy and edit config
-cp portier.yaml.example portier.yaml
-nano portier.yaml
+cp anpr_gate/portier.yaml.example anpr_gate/portier.yaml
+nano anpr_gate/portier.yaml
 
 # Run with GUI
 python -m anpr_gate
