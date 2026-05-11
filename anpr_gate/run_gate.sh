@@ -5,7 +5,9 @@
 set -euo pipefail
 
 VENV_DIR="$HOME/anpr_gate_env"
-PROJECT_DIR="$HOME/anpr_gate"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
+CONFIG_FILE="$PROJECT_DIR/portier.yaml"
 
 if [ ! -d "$VENV_DIR" ]; then
     echo "[ERROR] Virtual environment not found at $VENV_DIR" >&2
@@ -19,8 +21,14 @@ if [ ! -f "$PROJECT_DIR/anpr_gate/main.py" ]; then
     exit 1
 fi
 
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "[ERROR] Missing YAML config: $CONFIG_FILE" >&2
+    echo "INI is no longer supported. Create portier.yaml." >&2
+    exit 1
+fi
+
 source "$VENV_DIR/bin/activate"
 export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 cd "$PROJECT_DIR"
-exec python3 -m anpr_gate.main
+exec python3 -m anpr_gate.main --config "$CONFIG_FILE"
