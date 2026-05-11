@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -98,9 +99,35 @@ class Container:
             return None
         if self._gate_detector is None:
             from anpr_gate.detection.pixel_diff_detector import GateStateDetector
+
+            def _resolve_ref(path_str: str) -> str:
+                p = Path(path_str)
+                if p.is_absolute() and p.exists():
+                    return str(p)
+
+                # Try relative to current working directory first
+                cwd_candidate = Path.cwd() / p
+                if cwd_candidate.exists():
+                    return str(cwd_candidate)
+
+                # Then relative to package root (…/anpr_gate)
+                pkg_root = Path(__file__).resolve().parent
+                pkg_candidate = pkg_root / p
+                if pkg_candidate.exists():
+                    return str(pkg_candidate)
+
+                # Compatibility fallback: refs/* -> anpr_gate/refs/*
+                if path_str.startswith("refs/"):
+                    compat_candidate = pkg_root / "anpr_gate" / p
+                    if compat_candidate.exists():
+                        return str(compat_candidate)
+
+                # Return original for clear downstream error
+                return path_str
+
             self._gate_detector = GateStateDetector(
-                ref_day=self.config.gate_detector.ref_day_path,
-                ref_night=self.config.gate_detector.ref_night_path,
+                ref_day=_resolve_ref(self.config.gate_detector.ref_day_path),
+                ref_night=_resolve_ref(self.config.gate_detector.ref_night_path),
                 roi=self.config.camera.roi(),
                 threshold=self.config.gate_detector.threshold,
             )

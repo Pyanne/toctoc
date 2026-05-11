@@ -42,12 +42,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def find_config() -> str:
-    """Find the config file: try several common locations."""
+    """Find the config file: try several common locations.
+
+    Prefer YAML over legacy INI when both exist.
+    """
     candidates = [
+        "portier.yaml",
+        "portier.yml",
         "portier.conf",
         "portier.conf.example",
         "configs/default.yaml",
         "configs/portier.conf",
+        "/etc/toctoc/portier.yaml",
         "/etc/toctoc/portier.conf",
     ]
     for c in candidates:
