@@ -12,6 +12,7 @@ from anpr_gate.camera.base import Camera, CameraError
 
 try:
     import requests
+    from requests.auth import HTTPDigestAuth
     HAS_REQUESTS = True
 except ImportError:
     HAS_REQUESTS = False
@@ -41,9 +42,10 @@ class SnapshotCamera(Camera):
             raise CameraError("requests library not installed — cannot grab snapshot")
 
         try:
+            # Hikvision ISAPI typically requires HTTP Digest auth
             resp = requests.get(
                 self._url,
-                auth=self._auth,
+                auth=HTTPDigestAuth(self._auth[0], self._auth[1]),
                 timeout=5,
             )
             resp.raise_for_status()

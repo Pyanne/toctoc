@@ -810,8 +810,8 @@ class SettingsWindow:
                                           "poll_interval")
         self._pol_cooldown = self._entry(parent, 2, "Cooldown (s)", "polling",
                                           "cooldown_after_detection")
-        self._pol_ping = self._entry(parent, 3, "Ping (s)", "polling",
-                                      "relay_ping_interval")
+        self._pol_ping = self._entry(parent, 3, "Ping (s)", "relay",
+                                      "ping_interval")
 
     def _build_plates(self, parent):
         parent.grid_columnconfigure(0, weight=1)
