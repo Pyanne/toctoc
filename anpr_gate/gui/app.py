@@ -34,6 +34,15 @@ except ImportError:
 from anpr_gate.config import AppConfig
 from anpr_gate.gate.state import GateState
 
+
+def _to_gate_state_enum(state: str) -> GateState:
+    s = (state or "").lower()
+    if s == "open":
+        return GateState.OPEN
+    if s == "closed":
+        return GateState.CLOSED
+    return GateState.UNKNOWN
+
 logger = logging.getLogger(__name__)
 
 
@@ -304,18 +313,13 @@ class ANGUIGate:
         if not self._gate_detector or not self._gate_cam:
             return "unknown"
         try:
-            ok = self._grab_gate_snapshot(
-                self._cfg.gate_camera.snapshot_url,
-                self._cfg.gate_camera.auth,
-                self._gate_snap_path
-            ) if self._grab_gate_snapshot else False
-
-            if not ok or not os.path.exists(self._gate_snap_path):
-                return "unknown"
-            state, _ = self._gate_detector.classify(self._gate_snap_path)
+            frame = self._gate_cam.capture()
+            state, _ = self._gate_detector.classify(frame)
             self._gate_controller.set_state_from_detector(state)
+            self._update_gate_label(_to_gate_state_enum(state))
             return state
-        except Exception:
+        except Exception as e:
+            logger.debug("Gate state capture failed: %s", e)
             return "unknown"
 
     # ------------------------------------------------------------------
@@ -402,16 +406,10 @@ class ANGUIGate:
                 self._update_relay_status(relay_online)
                 last_ping = now
 
-                if self._gate_detector and self._grab_gate_snapshot:
+                if self._gate_detector:
                     try:
-                        ok = self._grab_gate_snapshot(
-                            cfg.gate_camera.snapshot_url,
-                            cfg.gate_camera.auth,
-                            self._gate_snap_path)
-                        if ok:
-                            state, _ = self._gate_detector.classify(
-                                self._gate_snap_path)
-                            logger.info("Periodic gate check: %s", state)
+                        state = self._check_gate_state_safe()
+                        logger.info("Periodic gate check: %s", state)
                     except Exception:
                         pass
 
@@ -427,6 +425,15 @@ class ANGUIGate:
 
             # Capture frame
             ret, frame = main_cap.read()
+            if ret:
+                # Update live preview panel
+                try:
+                    import cv2
+                    preview_path = "/tmp/anpr_preview.jpg"
+                    cv2.imwrite(preview_path, frame)
+                    self._update_frame_display(preview_path)
+                except Exception:
+                    pass
             if not ret:
                 logger.warning("Empty frame from camera — reconnecting")
                 main_cap.release()
