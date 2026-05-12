@@ -582,11 +582,11 @@ class ANGUIGate:
     def _update_frame_display(self, image_path: str):
         def work():
             try:
-                img = PILImage.open(image_path).resize((640, 360), PILImage.LANCZOS)
+                img = Image.open(image_path).resize((640, 360), Image.LANCZOS)
                 self._current_tk_image = CTkImage(light_image=img, size=(640, 360))
                 self._lbl_frame.configure(image=self._current_tk_image, text="")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Frame display update failed: %s", e)
         self._root.after(0, work)
 
     def _set_status(self, text, color):
