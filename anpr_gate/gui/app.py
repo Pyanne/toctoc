@@ -441,14 +441,8 @@ class ANGUIGate:
             # Capture frame
             ret, frame = main_cap.read()
             if ret:
-                # Update live preview panel
-                try:
-                    import cv2
-                    preview_path = "/tmp/anpr_preview.jpg"
-                    cv2.imwrite(preview_path, frame)
-                    self._update_frame_display(preview_path)
-                except Exception:
-                    pass
+                # Update preview once per polling cycle using the same frame sent to YOLO
+                self._update_frame_from_array(frame)
             if not ret:
                 empty_frames += 1
                 if empty_frames % 10 == 1:
@@ -579,10 +573,17 @@ class ANGUIGate:
         self._log_text.see("end")
         self._log_text.configure(state="disabled")
 
-    def _update_frame_display(self, image_path: str):
+    def _update_frame_from_array(self, frame):
+        """Render a BGR OpenCV frame to the preview panel.
+
+        Uses in-memory conversion only (no temp file writes), and is called
+        exactly once per polling cycle from the detection loop.
+        """
         def work():
             try:
-                img = Image.open(image_path).resize((640, 360), Image.LANCZOS)
+                import cv2
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(rgb).resize((640, 360), Image.LANCZOS)
                 self._current_tk_image = CTkImage(light_image=img, size=(640, 360))
                 self._lbl_frame.configure(image=self._current_tk_image, text="")
             except Exception as e:
