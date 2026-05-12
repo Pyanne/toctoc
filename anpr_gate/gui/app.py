@@ -388,13 +388,27 @@ class ANGUIGate:
         # Camera for main capture
         try:
             import cv2
-            main_cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-            main_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+            def _open_camera():
+                cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+                if not cap.isOpened():
+                    cap.release()
+                    cap = cv2.VideoCapture(rtsp_url)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                return cap
+
+            main_cap = _open_camera()
+            if not main_cap.isOpened():
+                raise RuntimeError(f"Cannot open stream: {rtsp_url}")
         except Exception as e:
             logger.error("Cannot open RTSP stream: %s", e)
             self._root.after(0, lambda: self._show_banner(
                 "⚠️  Camera unreachable", self.COL_ALERT_FG, self.COL_ALERT_BG))
             return
+
+        empty_frames = 0
+        gate_check_interval = max(2, min(10, int(interval)))
+        last_gate_check = 0.0
 
         while self._running and not self._shutdown_flag.is_set():
             now = time.monotonic()
@@ -405,12 +419,14 @@ class ANGUIGate:
                 self._update_relay_status(relay_online)
                 last_ping = now
 
-                if self._gate_detector:
-                    try:
-                        state = self._check_gate_state_safe()
-                        logger.info("Periodic gate check: %s", state)
-                    except Exception:
-                        pass
+            # Gate-state refresh should not depend on relay ping interval
+            if self._gate_detector and (now - last_gate_check >= gate_check_interval):
+                try:
+                    state = self._check_gate_state_safe()
+                    logger.info("Periodic gate check: %s", state)
+                except Exception:
+                    pass
+                last_gate_check = now
 
             # Cooldown check
             if in_cooldown and now >= cooldown_until:
@@ -434,15 +450,26 @@ class ANGUIGate:
                 except Exception:
                     pass
             if not ret:
-                logger.warning("Empty frame from camera — reconnecting")
+                empty_frames += 1
+                if empty_frames % 10 == 1:
+                    logger.warning("Empty frame from camera — reconnecting (%d)", empty_frames)
                 main_cap.release()
                 try:
-                    main_cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-                    main_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    main_cap = _open_camera()
                 except Exception:
                     pass
+                # keep gate-state alive even when RTSP temporarily fails
+                if self._gate_detector and (now - last_gate_check >= gate_check_interval):
+                    try:
+                        state = self._check_gate_state_safe()
+                        logger.info("Gate check (RTSP empty): %s", state)
+                    except Exception:
+                        pass
+                    last_gate_check = now
                 time.sleep(interval)
                 continue
+            else:
+                empty_frames = 0
 
             # Detect plates (in detection ROI)
             roi = self._crop_roi(frame, cam.roi())
