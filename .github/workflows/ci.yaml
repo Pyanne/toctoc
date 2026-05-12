@@ -1,0 +1,55 @@
+name: CI
+on:
+  push:
+    branches: [master, anpr-improvement, develop]
+  pull_request:
+    branches: [master, anpr-improvement]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check anpr_gate/ tests/
+
+      - name: Type check
+        run: mypy anpr_gate/ --ignore-missing-imports || true
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short --cov=anpr_gate --cov-report=term-missing
+
+  build-config:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate config roundtrip
+        run: |
+          python -c "
+          from anpr_gate.config import create_default, load_yaml
+          import tempfile, os
+          with tempfile.NamedTemporaryFile(suffix='.yaml', delete=False) as f:
+              create_default(f.name)
+              cfg = load_yaml(f.name)
+              os.unlink(f.name)
+          print('Config roundtrip OK')
+          print(f'Camera host default: {cfg.camera.host}')
+          print(f'Relay host default: {cfg.relay.host}')
+          "

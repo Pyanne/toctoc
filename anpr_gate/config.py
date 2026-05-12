@@ -1,248 +1,369 @@
-"""Configuration file management for ANPR Gate Control."""
-import configparser
+"""Configuration management with typed validation and YAML support only."""
+
+from __future__ import annotations
+
 import os
-from typing import Dict, List, Tuple
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
 
 
-class ConfigManager:
-    """Manages reading and writing the portier.conf file."""
+class ConfigError(Exception):
+    """Raised when configuration is invalid or missing required fields."""
 
-    DEFAULT_CONFIG = """[general]
-quiet_mode = False
-archive_enabled = True
 
-[camera]
-host = <YOUR_CAMERA_HOST>
-port = 554
-user = <YOUR_CAMERA_USER>
-password = <YOUR_CAMERA_PASSWORD>
-path = <YOUR_RTSP_PATH>
+# ---------------------------------------------------------------------------
+# Typed config sections
+# ---------------------------------------------------------------------------
 
-[camera.roi]
-x1 = 0
-y1 = 0
-x2 = 1920
-y2 = 1080
+@dataclass
+class CameraConfig:
+    host: str = ""
+    port: int = 554
+    user: str = ""
+    password: str = ""
+    path: str = "/h264/ch1/main/av_stream"
+    roi_x1: int = 0
+    roi_y1: int = 0
+    roi_x2: int = 1920
+    roi_y2: int = 1080
+    snapshot_fps: int = 1  # how many snapshots per second to attempt
 
-[paths]
-snap_path = /tmp/picture.jpg
-cropped_path = /tmp/cropped.jpg
-archive_dir = plaques.d
+    def roi(self) -> tuple[int, int, int, int]:
+        return self.roi_x1, self.roi_y1, self.roi_x2, self.roi_y2
 
-[relay]
-host = <YOUR_RELAY_HOST>
-url_open = /30000/07
-url_close = /30000/06
-pulse_duration = 1
+    @property
+    def rtsp_url(self) -> str:
+        cred = f"{self.user}:{self.password}@" if self.user else ""
+        path = self.path if str(self.path).startswith("/") else f"/{self.path}"
+        return f"rtsp://{cred}{self.host}:{self.port}{path}"
 
-[gate_camera]
-host = <YOUR_GATE_CAMERA_HOST>
-port = 80
-user = <YOUR_GATE_CAMERA_USER>
-password = <YOUR_GATE_CAMERA_PASSWORD>
-snapshot_path = /ISAPI/Streaming/channels/101/picture
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        if not self.host:
+            errors.append("camera.host is required")
+        return errors
 
-[gate_detector]
-ref_day_path = refs/ref_close_day.jpg
-ref_night_path = refs/ref_close_night.jpg
-threshold = 20.0
-enabled = True
-reopen_check_interval = 180
 
-[polling]
-poll_interval = 2
-cooldown_after_detection = 75
-relay_ping_interval = 1800
+@dataclass
+class RelayConfig:
+    host: str = "192.168.20.26"
+    url_open: str = "/30000/07"
+    url_close: str = "/30000/06"
+    pulse_duration: float = 1.0
+    ping_interval: int = 1800  # seconds between health checks
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        if not self.host:
+            errors.append("relay.host is required")
+        if self.pulse_duration <= 0:
+            errors.append("relay.pulse_duration must be > 0")
+        return errors
+
+
+@dataclass
+class GateCameraConfig:
+    host: str = "192.168.20.22"
+    port: int = 82
+    user: str = "admin"
+    password: str = ""
+    snapshot_path: str = "/ISAPI/Streaming/channels/101/picture"
+
+    @property
+    def snapshot_url(self) -> str:
+        return f"http://{self.host}:{self.port}{self.snapshot_path}"
+
+    @property
+    def auth(self) -> str:
+        return f"{self.user}:{self.password}"
+
+    def validate(self) -> list[str]:
+        return []  # optional; gate detection degrades gracefully
+
+
+@dataclass
+class GateDetectorConfig:
+    ref_day_path: str = ""
+    ref_night_path: str = ""
+    threshold: float = 35.0
+    enabled: bool = False
+    reopen_check_interval: int = 180  # auto-close timer (seconds)
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        if self.enabled:
+            if not self.ref_day_path:
+                errors.append("gate_detector.ref_day_path is required when enabled")
+            if not self.ref_night_path:
+                errors.append("gate_detector.ref_night_path is required when enabled")
+        if self.threshold <= 0:
+            errors.append("gate_detector.threshold must be > 0")
+        return errors
+
+
+@dataclass
+class OCRConfig:
+    enabled: bool = True
+    confidence_threshold: float = 0.15
+    languages: list[str] = field(default_factory=lambda: ["en"])
+    use_gpu: bool = False
+    preprocess_upscale: int = 3       # upscale factor before OCR
+    preprocess_denoise_strength: int = 11  # bilateral filter param
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        if self.confidence_threshold < 0 or self.confidence_threshold > 1:
+            errors.append("ocr.confidence_threshold must be between 0 and 1")
+        return errors
+
+
+@dataclass
+class PollingConfig:
+    poll_interval: int = 2            # seconds between poll cycles
+    cooldown_after_detection: int = 75  # seconds to wait after a detection
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        if self.poll_interval < 1:
+            errors.append("polling.poll_interval must be >= 1")
+        if self.cooldown_after_detection < 0:
+            errors.append("polling.cooldown_after_detection must be >= 0")
+        return errors
+
+
+@dataclass
+class ArchiveConfig:
+    enabled: bool = True
+    directory: str = "plaques.d"
+    max_age_days: int = 30            # auto-cleanup
+    filename_fmt: str = "{ts} {plate}.jpg"  # {ts}, {plate}, {hash}
+
+    def validate(self) -> list[str]:
+        return []
+
+
+@dataclass
+class AppConfig:
+    """Top-level application configuration."""
+    camera: CameraConfig = field(default_factory=CameraConfig)
+    relay: RelayConfig = field(default_factory=RelayConfig)
+    gate_camera: GateCameraConfig = field(default_factory=GateCameraConfig)
+    gate_detector: GateDetectorConfig = field(default_factory=GateDetectorConfig)
+    ocr: OCRConfig = field(default_factory=OCRConfig)
+    polling: PollingConfig = field(default_factory=PollingConfig)
+    archive: ArchiveConfig = field(default_factory=ArchiveConfig)
+    allowed_plates: list[str] = field(default_factory=list)
+    debug: bool = False
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        errors += self.camera.validate()
+        errors += self.relay.validate()
+        errors += self.gate_camera.validate()
+        errors += self.gate_detector.validate()
+        errors += self.ocr.validate()
+        errors += self.polling.validate()
+        errors += self.archive.validate()
+        return errors
+
+    def get_allowed_plates(self) -> list[str]:
+        """Return sorted, normalized allowed plates."""
+        return sorted(set(p.strip().upper().replace(" ", "-") for p in self.allowed_plates if p.strip()))
+
+    def is_allowed(self, plate: str) -> bool:
+        """Check if a plate is in the allowlist (normalized comparison)."""
+        normalized = plate.strip().upper().replace(" ", "-")
+        return normalized in self.get_allowed_plates()
+
+
+# ---------------------------------------------------------------------------
+# Loaders
+# ---------------------------------------------------------------------------
+
+DEFAULT_YAML = """\
+# ANPR Gate Control Configuration
+# --------------------------------
+
+camera:
+  host: "192.168.1.100"
+  port: 554
+  user: ""
+  password: ""
+  path: "/h264/ch1/main/av_stream"
+  roi_x1: 0
+  roi_y1: 0
+  roi_x2: 1920
+  roi_y2: 1080
+  snapshot_fps: 1
+
+relay:
+  host: "192.168.20.26"
+  url_open: "/30000/07"
+  url_close: "/30000/06"
+  pulse_duration: 1.0
+  ping_interval: 1800
+
+gate_camera:
+  host: "192.168.20.22"
+  port: 82
+  user: "admin"
+  password: ""
+  snapshot_path: "/ISAPI/Streaming/channels/101/picture"
+
+gate_detector:
+  ref_day_path: "anpr_gate/refs/ref_close_day.jpg"
+  ref_night_path: "anpr_gate/refs/ref_close_night.jpg"
+  threshold: 35.0
+  enabled: true
+  reopen_check_interval: 180
+
+ocr:
+  enabled: true
+  confidence_threshold: 0.15
+  languages: ["en"]
+  use_gpu: false
+  preprocess_upscale: 3
+  preprocess_denoise_strength: 11
+
+polling:
+  poll_interval: 2
+  cooldown_after_detection: 75
+
+archive:
+  enabled: true
+  directory: "plaques.d"
+  max_age_days: 30
+
+allowed_plates:
+  # - CF938PH
+  # - AB123CD
 """
 
-    def __init__(self, config_path: str = "portier.conf"):
-        """Initialize the config manager.
 
-        Args:
-            config_path: Path to the configuration file
-        """
-        self.config_path = config_path
-        self.config = configparser.ConfigParser()
-        self._load_or_create()
+def load_yaml(path: str | Path) -> AppConfig:
+    """Load and validate config from a YAML file."""
+    path = Path(path)
+    if not path.exists():
+        raise ConfigError(f"Config file not found: {path}")
 
-    def _load_or_create(self):
-        """Load existing config or create default one."""
-        # Always read defaults first, then overlay user config
-        # so new sections from DEFAULT_CONFIG are available even
-        # when upgrading from an older portier.conf
-        self.config.read_string(self.DEFAULT_CONFIG)
-        if os.path.exists(self.config_path):
-            self.config.read(self.config_path)
+    with open(path) as f:
+        raw = yaml.safe_load(f) or {}
+
+    cfg = _dict_to_config(raw)
+    errors = cfg.validate()
+    if errors:
+        raise ConfigError(f"Invalid configuration:\n  " + "\n  ".join(errors))
+    return cfg
+
+
+def _dict_to_config(d: dict[str, Any]) -> AppConfig:
+    """Recursively build typed config from a dict."""
+
+    def _pop(section: str, cls: type, defaults: dict | None = None) -> Any:
+        section_data = d.pop(section, {}) or {}
+        if defaults:
+            merged = {**defaults, **section_data}
         else:
-            self.save()
+            merged = section_data
+        # Convert list fields
+        fields = {f.name: f.type for f in cls.__dataclass_fields__.values()}
+        for fname, ftype in fields.items():
+            if ftype is list and fname in merged and isinstance(merged[fname], str):
+                merged[fname] = [x.strip() for x in merged[fname].split(",") if x.strip()]
+        return cls(**merged)
 
-    def _create_default(self):
-        """Create default configuration file."""
-        self.config.read_string(self.DEFAULT_CONFIG)
-        self.save()
+    return AppConfig(
+        camera=_pop("camera", CameraConfig),
+        relay=_pop("relay", RelayConfig),
+        gate_camera=_pop("gate_camera", GateCameraConfig),
+        gate_detector=_pop("gate_detector", GateDetectorConfig),
+        ocr=_pop("ocr", OCRConfig),
+        polling=_pop("polling", PollingConfig),
+        archive=_pop("archive", ArchiveConfig),
+        allowed_plates=d.pop("allowed_plates", []),
+        debug=d.pop("debug", False),
+    )
 
-    def save(self):
-        """Save configuration to file."""
-        with open(self.config_path, 'w') as f:
-            self.config.write(f)
 
-    def get(self, section: str, key: str, fallback=None):
-        """Get a configuration value."""
-        try:
-            return self.config.get(section, key)
-        except (configparser.NoSectionError, configparser.NoOptionError):
-            return fallback
+def load(path: str | Path) -> AppConfig:
+    """Load and validate config from a YAML file."""
+    path = Path(path)
+    if not path.exists():
+        raise ConfigError(f"Config file not found: {path}")
 
-    def getint(self, section: str, key: str, fallback: int = 0) -> int:
-        """Get an integer configuration value."""
-        try:
-            return self.config.getint(section, key)
-        except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
-            return fallback
-
-    def getfloat(self, section: str, key: str, fallback: float = 0.0) -> float:
-        """Get a float configuration value."""
-        try:
-            return self.config.getfloat(section, key)
-        except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
-            return fallback
-
-    def getboolean(self, section: str, key: str, fallback: bool = False) -> bool:
-        """Get a boolean configuration value."""
-        try:
-            return self.config.getboolean(section, key)
-        except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
-            return fallback
-
-    def set(self, section: str, key: str, value):
-        """Set a configuration value."""
-        if not self.config.has_section(section):
-            self.config.add_section(section)
-        self.config.set(section, key, str(value))
-
-    def get_allowed_plates(self) -> List[str]:
-        """Get list of allowed license plates."""
-        plates = []
-        if self.config.has_section('plates'):
-            for key, _ in self.config.items('plates'):
-                if key != '__name__':
-                    plates.append(key.strip().upper())
-        return sorted(plates)
-
-    def set_allowed_plates(self, plates: List[str]):
-        """Set allowed license plates."""
-        # Remove existing plates section if it exists
-        if self.config.has_section('plates'):
-            self.config.remove_section('plates')
-        self.config.add_section('plates')
-        for plate in plates:
-            self.config.set('plates', plate.upper(), '1')
-
-    def add_plate(self, plate: str):
-        """Add a plate to the allowed list."""
-        plate = plate.strip().upper()
-        if not self.config.has_section('plates'):
-            self.config.add_section('plates')
-        self.config.set('plates', plate, '1')
-
-    def remove_plate(self, plate: str):
-        """Remove a plate from the allowed list."""
-        plate = plate.strip().upper()
-        if self.config.has_section('plates'):
-            try:
-                self.config.remove_option('plates', plate)
-            except configparser.NoOptionError:
-                pass
-
-    def get_roi(self) -> Tuple[int, int, int, int]:
-        """Get Region of Interest coordinates as (x1, y1, x2, y2)."""
-        return (
-            self.getint('camera.roi', 'x1'),
-            self.getint('camera.roi', 'y1'),
-            self.getint('camera.roi', 'x2'),
-            self.getint('camera.roi', 'y2')
+    ext = path.suffix.lower()
+    if ext not in (".yaml", ".yml"):
+        raise ConfigError(
+            f"Unsupported config format '{ext or '(no extension)'}'. "
+            "Only YAML is supported. Use portier.yaml."
         )
 
-    def set_roi(self, x1: int, y1: int, x2: int, y2: int):
-        """Set Region of Interest coordinates."""
-        if not self.config.has_section('camera.roi'):
-            self.config.add_section('camera.roi')
-        self.config.set('camera.roi', 'x1', str(x1))
-        self.config.set('camera.roi', 'y1', str(y1))
-        self.config.set('camera.roi', 'x2', str(x2))
-        self.config.set('camera.roi', 'y2', str(y2))
+    return load_yaml(path)
 
-    def get_rtsp_url(self) -> str:
-        """Build and return the RTSP URL."""
-        user = self.get('camera', 'user', '')
-        password = self.get('camera', 'password', '')
-        host = self.get('camera', 'host', 'localhost')
-        port = self.getint('camera', 'port', 554)
-        path = self.get('camera', 'path', '/')
-        return f"rtsp://{user}:{password}@{host}:{port}{path}"
+def write_yaml(cfg: AppConfig, path: str | Path):
+    """Write config as YAML."""
+    data = {
+        "camera": {
+            "host": cfg.camera.host,
+            "port": cfg.camera.port,
+            "user": cfg.camera.user,
+            "password": cfg.camera.password,
+            "path": cfg.camera.path,
+            "roi_x1": cfg.camera.roi_x1,
+            "roi_y1": cfg.camera.roi_y1,
+            "roi_x2": cfg.camera.roi_x2,
+            "roi_y2": cfg.camera.roi_y2,
+            "snapshot_fps": cfg.camera.snapshot_fps,
+        },
+        "relay": {
+            "host": cfg.relay.host,
+            "url_open": cfg.relay.url_open,
+            "url_close": cfg.relay.url_close,
+            "pulse_duration": cfg.relay.pulse_duration,
+            "ping_interval": cfg.relay.ping_interval,
+        },
+        "gate_camera": {
+            "host": cfg.gate_camera.host,
+            "port": cfg.gate_camera.port,
+            "user": cfg.gate_camera.user,
+            "password": cfg.gate_camera.password,
+            "snapshot_path": cfg.gate_camera.snapshot_path,
+        },
+        "gate_detector": {
+            "ref_day_path": cfg.gate_detector.ref_day_path,
+            "ref_night_path": cfg.gate_detector.ref_night_path,
+            "threshold": cfg.gate_detector.threshold,
+            "enabled": cfg.gate_detector.enabled,
+            "reopen_check_interval": cfg.gate_detector.reopen_check_interval,
+        },
+        "ocr": {
+            "enabled": cfg.ocr.enabled,
+            "confidence_threshold": cfg.ocr.confidence_threshold,
+            "languages": cfg.ocr.languages,
+            "use_gpu": cfg.ocr.use_gpu,
+            "preprocess_upscale": cfg.ocr.preprocess_upscale,
+            "preprocess_denoise_strength": cfg.ocr.preprocess_denoise_strength,
+        },
+        "polling": {
+            "poll_interval": cfg.polling.poll_interval,
+            "cooldown_after_detection": cfg.polling.cooldown_after_detection,
+        },
+        "archive": {
+            "enabled": cfg.archive.enabled,
+            "directory": cfg.archive.directory,
+            "max_age_days": cfg.archive.max_age_days,
+        },
+        "allowed_plates": cfg.get_allowed_plates(),
+        "debug": cfg.debug,
+    }
+    with open(path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
-    def get_all_camera_config(self) -> Dict:
-        """Get all camera configuration as a dict."""
-        return {
-            'host': self.get('camera', 'host', 'localhost'),
-            'port': self.getint('camera', 'port', 554),
-            'user': self.get('camera', 'user', ''),
-            'password': self.get('camera', 'password', ''),
-            'path': self.get('camera', 'path', '/'),
-        }
 
-    def get_all_relay_config(self) -> Dict:
-        """Get all relay configuration as a dict."""
-        return {
-            'host': self.get('relay', 'host', 'localhost'),
-            'url_open': self.get('relay', 'url_open', ''),
-            'url_close': self.get('relay', 'url_close', ''),
-            'pulse_duration': self.getfloat('relay', 'pulse_duration', 1.0),
-        }
-
-    def get_all_polling_config(self) -> Dict:
-        """Get all polling configuration as a dict."""
-        return {
-            'poll_interval': self.getint('polling', 'poll_interval', 2),
-            'cooldown_after_detection': self.getint('polling', 'cooldown_after_detection', 75),
-            'relay_ping_interval': self.getint('polling', 'relay_ping_interval', 1800),
-        }
-
-    def get_all_gate_camera_config(self) -> Dict:
-        """Get all gate camera configuration as a dict."""
-        return {
-            'host': self.get('gate_camera', 'host', 'localhost'),
-            'port': self.getint('gate_camera', 'port', 80),
-            'user': self.get('gate_camera', 'user', ''),
-            'password': self.get('gate_camera', 'password', ''),
-            'snapshot_path': self.get('gate_camera', 'snapshot_path',
-                                      '/ISAPI/Streaming/channels/101/picture'),
-        }
-
-    def get_gate_camera_auth(self) -> str:
-        """Return "user:password" for gate camera digest auth."""
-        cfg = self.get_all_gate_camera_config()
-        return f"{cfg['user']}:{cfg['password']}"
-
-    def get_all_gate_detector_config(self) -> Dict:
-        """Get gate-detector configuration as a dict."""
-        return {
-            'ref_day_path': self.get('gate_detector', 'ref_day_path', ''),
-            'ref_night_path': self.get('gate_detector', 'ref_night_path', ''),
-            'threshold': self.getfloat('gate_detector', 'threshold', 35.0),
-            'enabled': self.getboolean('gate_detector', 'enabled', True),
-            'reopen_check_interval': self.getint('gate_detector',
-                                                  'reopen_check_interval', 180),
-        }
-
-    def resolve_gate_refs(self, base_dir: str) -> tuple:
-        """Resolve gate detector reference image paths (relative or absolute)."""
-        cfg = self.get_all_gate_detector_config()
-        day = cfg['ref_day_path']
-        night = cfg['ref_night_path']
-        if not os.path.isabs(day):
-            day = os.path.join(base_dir, day)
-        if not os.path.isabs(night):
-            night = os.path.join(base_dir, night)
-        return day, night
-
+def create_default(path: str | Path, camera_host: str = "192.168.1.100"):
+    """Write a default YAML config file."""
+    cfg = AppConfig(camera=CameraConfig(host=camera_host))
+    write_yaml(cfg, path)
