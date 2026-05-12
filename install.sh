@@ -22,7 +22,7 @@ section() { echo -e "\n${BOLD}── $1 ──${RESET}"; }
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 REPO_URL="https://github.com/Pyanne/toctoc.git"
-INSTALL_DIR="$HOME/anpr_gate"
+INSTALL_DIR="$HOME/toctoc"
 VENV_DIR="$HOME/anpr_gate_env"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

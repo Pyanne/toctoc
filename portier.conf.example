@@ -3,11 +3,11 @@ quiet_mode = False
 archive_enabled = True
 
 [camera]
-host = 192.168.1.100
+host = 192.168.20.21
 port = 554
-user = your_camera_user
-password = your_camera_password
-path = /h264/ch1/main/av_stream
+user = ced
+password = Gougou0016
+path = /Streaming/Channels/101
 
 [camera.roi]
 x1 = 0
@@ -21,7 +21,7 @@ cropped_path = /tmp/cropped.jpg
 archive_dir = plaques.d
 
 [relay]
-host = 192.168.1.200
+host = 192.168.20.26
 url_open = /30000/07
 url_close = /30000/06
 pulse_duration = 1
@@ -29,8 +29,8 @@ pulse_duration = 1
 [gate_camera]
 host = 192.168.20.22
 port = 82
-user = your_gate_camera_user
-password = your_gate_camera_password
+user = admin
+password = prouT$$$
 snapshot_path = /ISAPI/Streaming/channels/101/picture
 
 [gate_detector]
@@ -46,5 +46,5 @@ cooldown_after_detection = 75
 relay_ping_interval = 1800
 
 [plates]
-CF938PH = 1
-YOUR_PLATE = 1
+AB123CD = 1
+1234AB56 = 1
