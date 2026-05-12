@@ -374,8 +374,7 @@ class ANGUIGate:
 
         # Build RTSP URL from config
         cam = cfg.camera
-        cred = f"{cam.user}:{cam.password}@" if cam.user else ""
-        rtsp_url = f"rtsp://{cred}{cam.host}:{cam.port}{cam.path}"
+        rtsp_url = cam.rtsp_url
 
         allowed_plates = set(self._allowlist.plates())
 

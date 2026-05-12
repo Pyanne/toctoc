@@ -37,7 +37,8 @@ class CameraConfig:
     @property
     def rtsp_url(self) -> str:
         cred = f"{self.user}:{self.password}@" if self.user else ""
-        return f"rtsp://{cred}{self.host}:{self.port}{self.path}"
+        path = self.path if str(self.path).startswith("/") else f"/{self.path}"
+        return f"rtsp://{cred}{self.host}:{self.port}{path}"
 
     def validate(self) -> list[str]:
         errors: list[str] = []
