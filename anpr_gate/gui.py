@@ -9,6 +9,7 @@ from datetime import datetime
 from queue import Queue, Empty
 from typing import Optional
 
+import cv2
 import numpy as np
 import tkinter as tk
 from PIL import Image, ImageTk
@@ -441,8 +442,27 @@ class ANGUIGate:
                 # Display the frame in the GUI
                 self._update_frame_display(snap_path)
 
+                # Crop to ROI before detection (avoids 2592x1944 -> 640x640 squashing the plate)
+                detect_path = snap_path
+                roi_x1 = cfg.getint("camera.roi", "x1", 0)
+                roi_y1 = cfg.getint("camera.roi", "y1", 0)
+                roi_x2 = cfg.getint("camera.roi", "x2", 99999)
+                roi_y2 = cfg.getint("camera.roi", "y2", 99999)
+                im = cv2.imread(snap_path)
+                if im is not None:
+                    h, w = im.shape[:2]
+                    # Clamp ROI to image bounds
+                    rx1, ry1 = min(roi_x1, w), min(roi_y1, h)
+                    rx2, ry2 = min(roi_x2, w), min(roi_y2, h)
+                    # Only crop if the ROI is smaller than the full image
+                    if (rx1, ry1, rx2, ry2) != (0, 0, w, h):
+                        cropped = im[ry1:ry2, rx1:rx2]
+                        cropped_path = cfg.get("paths", "cropped_path", "/tmp/cropped.jpg")
+                        cv2.imwrite(cropped_path, cropped)
+                        detect_path = cropped_path
+
                 # Detect plates
-                plates = anpr.infer_image(snap_path, allowed_plates)
+                plates = anpr.infer_image(detect_path, allowed_plates)
                 if not plates:
                     time.sleep(interval)
                     continue
