@@ -35,7 +35,16 @@ class GateStateDetector:
                                                          self._roix1:self._roix2]).mean())
             diff_night = float(np.abs(roi - self._ref_night[self._roiy1:self._roiy2,
                                                             self._roix1:self._roix2]).mean())
-            return "closed" if min(diff_day, diff_night) < self._threshold else "open"
+
+            # Use the better-matching reference (minimum diff).
+            # If the best match is within threshold, gate looks like closed.
+            # If both references differ significantly, gate state changed = open.
+            best_diff = min(diff_day, diff_night)
+
+            if best_diff < self._threshold:
+                return "closed"
+            else:
+                return "open"
         except Exception:
             return "unknown"
 
@@ -49,7 +58,8 @@ class GateStateDetector:
             dn = float(np.abs(roi - self._ref_night[self._roiy1:self._roiy2,
                                                    self._roix1:self._roix2]).mean())
             return {"diff_day": round(dd, 1), "diff_night": round(dn, 1),
-                    "min_diff": round(min(dd, dn), 1)}
+                    "min_diff": round(min(dd, dn), 1),
+                    "threshold": self._threshold}
         except Exception:
             return {}
 
