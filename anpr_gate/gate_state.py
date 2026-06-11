@@ -25,7 +25,7 @@ class GateStateDetector:
     def __init__(self, ref_day_path: str = "", ref_night_path: str = "",
                  roi: Tuple[int, int, int, int] = (200, 200, 1400, 500),
                  threshold: float = 20.0,
-                 yellow_threshold: float = 0.05):
+                 yellow_threshold: float = 0.03):
         """
         Args:
             ref_day_path: unused (kept for API compatibility)
