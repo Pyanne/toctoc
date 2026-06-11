@@ -93,18 +93,18 @@ class GateStateDetector:
         return "open" if yellow_fraction > self._yellow_threshold else "closed"
 
     def _check_brightness(self, img: np.ndarray) -> str:
-        """Nighttime fallback: check if the scene is brighter than typical.
+        """Nighttime fallback: use dark pixel fraction in left half.
 
-        With gate open at night, the IR camera sees more of the road which
-        tends to be brighter than the dark gate panels. This is a rough heuristic.
+        When gate is closed, the gate panel fills the left side of the image
+        and is uniformly bright (very few dark pixels). When gate is open,
+        the camera sees through to the road/shadows beyond, producing many
+        dark pixels in the left half.
         """
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
-        # Check lower portion of image
-        h = gray.shape[0]
-        lower = gray[h // 2:, :]
-        avg_brightness = lower.mean()
-        # Threshold determined empirically — bright road > 80, dark gate < 60
-        return "open" if avg_brightness > 70 else "closed"
+        left = gray[:, :gray.shape[1] // 2].astype(np.float32)
+        dark_fraction = np.count_nonzero(left < 60) / left.size
+        # Closed: ~0.5% dark, Open: ~35% dark. Threshold at 10%.
+        return "open" if dark_fraction > 0.10 else "closed"
 
     def diff_scores(self, image_path: str) -> dict:
         """Return diagnostic info."""
@@ -137,12 +137,14 @@ class GateStateDetector:
                 }
             else:
                 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
-                lower = gray[gray.shape[0] // 2:, :]
+                left = gray[:, :gray.shape[1] // 2].astype(np.float32)
+                dark_frac = np.count_nonzero(left < 60) / left.size
                 return {
-                    "method": "brightness",
+                    "method": "dark_pixel_fraction",
                     "avg_saturation": round(avg_sat, 1),
-                    "avg_brightness": round(lower.mean(), 1),
-                    "gate_state": "open" if lower.mean() > 70 else "closed",
+                    "dark_fraction": round(dark_frac, 4),
+                    "dark_threshold": 0.10,
+                    "gate_state": "open" if dark_frac > 0.10 else "closed",
                 }
         except Exception:
             return {}
