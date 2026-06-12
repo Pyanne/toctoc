@@ -6,6 +6,8 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from logging import Formatter, Logger, INFO
+from logging.handlers import RotatingFileHandler
 from queue import Queue, Empty
 from typing import Optional
 
@@ -80,9 +82,16 @@ class ANGUIGate:
         self._last_gate_state = "unknown"
         self._last_reopen_check = 0.0
         self._last_rel_check = 0.0
+        # Consecutive-open confirmation counter: require N confirmations
+        # before treating a detected "open" as real (filters false positives).
+        self._open_confirmation_count = 0
+        self._OPEN_CONFIRMATION_REQUIRED = 3
 
         # Stats
         self._stats = {"total": 0, "authorized": 0, "denied": 0}
+
+        # File logger for the detection loop
+        self._file_log = self._setup_file_log()
 
         # Window
         self._root = CTk()
@@ -92,6 +101,29 @@ class ANGUIGate:
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_layout()
+
+    # ------------------------------------------------------------------
+    # File logging
+    # ------------------------------------------------------------------
+
+    def _setup_file_log(self):
+        """Create a Logger that writes to ~/toctoc/anpr.log with rotation."""
+        log_path = os.path.expanduser("~/toctoc/anpr.log")
+        logger = Logger("anpr_gate")
+        # Rotate at 5 MB, keep 3 backups (~20 MB total max)
+        handler = RotatingFileHandler(
+            log_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        handler.setFormatter(Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S"))
+        logger.addHandler(handler)
+        return logger
+
+    def filelog(self, msg: str):
+        """Thread-safe write to the detection log file."""
+        try:
+            self._file_log.info(msg)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Layout
@@ -317,25 +349,13 @@ class ANGUIGate:
     # ------------------------------------------------------------------
 
     def _check_gate_state_safe(self) -> str:
-        """Check gate state using the detector. Returns "closed"/"open"/"unknown".
+        """Check gate state. DISABLED — always returns "closed" so relay fires.
 
-        If no detector is configured, returns "unknown" (fallback).
+        TODO: reimplement with reliable detection method.
+        Previously used yellow stripe detection but it had too many false
+        positives from foliage and shadows.
         """
-        if not self._gate_detector:
-            return "unknown"
-        if not self._grab_gate_snapshot:
-            return "unknown"
-        try:
-            ok = self._grab_gate_snapshot(
-                self._gate_cam_url, self._gate_cam_auth, self._gate_snap_path
-            )
-            if not ok or not os.path.exists(self._gate_snap_path):
-                return "unknown"
-            state = self._gate_detector.check(self._gate_snap_path)
-            self._last_gate_state = state  # cache for periodic checks
-            return state
-        except Exception:
-            return "unknown"
+        return "closed"
 
     # ------------------------------------------------------------------
     # Detection loop control
@@ -401,26 +421,28 @@ class ANGUIGate:
         relay_online = relay.is_online()
         self._update_relay_status(relay_online)
         last_ping = time.time()
+        last_gate_poll = 0.0
+        GATE_POLL_INTERVAL = 10  # seconds between idle-path gate state refreshes
         in_cooldown = False
         cooldown_until = 0.0
         polling_since = time.time()
+        poll_count = 0
+
+        self.filelog("=== detection_loop started ===")
 
         while self._running and not self._shutdown_flag.is_set():
             now = time.time()
 
-            # Relay health check + periodic gate state check
+            # Relay health check (gate state check DISABLED)
             if now - last_ping >= ping_int:
                 relay_online = relay.is_online()
                 self._update_relay_status(relay_online)
                 last_ping = now
-                # Check gate state at relay ping interval (not reopen_check_interval)
-                if self._gate_detector:
-                    threading.Thread(target=self._do_periodic_gate_check,
-                                    daemon=True).start()
 
             # Cooldown check
             if in_cooldown and now >= cooldown_until:
                 in_cooldown = False
+                self.filelog("Cooldown expired – resuming polling")
 
             # Update poll info
             interval = cfg.getint("polling", "poll_interval", 2)
@@ -432,10 +454,15 @@ class ANGUIGate:
             self._root.after(0, lambda t=status_txt: self._lbl_poll.configure(text=t))
 
             if not in_cooldown:
+                poll_count += 1
+                t_step = time.time()
+
                 # Capture frame
                 rtsp_url = cfg.get_rtsp_url()
                 ok = self._grab_snapshot(rtsp_url, snap_path) if self._grab_snapshot else grab_snapshot(rtsp_url, snap_path)
+                t_snap = time.time()
                 if not ok:
+                    self.filelog(f"poll #{poll_count}  SNAP FAIL  ({t_snap-t_step:.1f}s)")
                     time.sleep(interval)
                     continue
 
@@ -461,9 +488,24 @@ class ANGUIGate:
                         cv2.imwrite(cropped_path, cropped)
                         detect_path = cropped_path
 
+                t_crop = time.time()
+
                 # Detect plates
                 plates = anpr.infer_image(detect_path, allowed_plates)
+                t_detect = time.time()
+
+                snap_ms = (t_snap - t_step) * 1000
+                detect_ms = (t_detect - t_crop) * 1000
+                total_ms = (t_detect - t_step) * 1000
+
                 if not plates:
+                    self.filelog(
+                        f"poll #{poll_count}  MISS  "
+                        f"snap={snap_ms:.0f}ms  detect={detect_ms:.0f}ms  total={total_ms:.0f}ms  "
+                        f"file={os.path.basename(detect_path)}"
+                    )
+                    # Gate state check DISABLED — label not updated
+                    # TODO: re-enable when detection is reliable
                     time.sleep(interval)
                     continue
 
@@ -475,6 +517,12 @@ class ANGUIGate:
                 # Reload allowed plates (hot-reload support)
                 allowed_plates = set(cfg.get_allowed_plates())
                 authorized = plate_key in allowed_plates
+
+                self.filelog(
+                    f"poll #{poll_count}  DETECT  plate='{plate}' key='{plate_key}'  "
+                    f"{'AUTHORIZED' if authorized else 'DENIED'}  "
+                    f"snap={snap_ms:.0f}ms  detect={detect_ms:.0f}ms  total={total_ms:.0f}ms"
+                )
 
                 print("[%s] Detection: '%s' (%s) -> %s" % (
                     datetime.now().strftime('%H:%M:%S'), plate, plate_key,
@@ -503,9 +551,11 @@ class ANGUIGate:
                         gate_opened = relay.open()
                         in_cooldown = True
                         cooldown_until = now + cooldown
+                        self.filelog(f"  -> relay PULSED (gate closed, authorized)  cooldown={cooldown}s")
                     elif gate_state == "open":
                         # Gate is already open (opened by remote or other means)
                         # Do NOT pulse the relay - that would close it on the vehicle
+                        self.filelog("  -> gate already OPEN – relay skipped (safe)")
                         print("[%s] Gate already OPEN – skipping relay pulse (safe)" %
                               datetime.now().strftime('%H:%M:%S'))
                         self._root.after(0, lambda: self._set_status(
@@ -515,12 +565,14 @@ class ANGUIGate:
                         gate_opened = True  # gate IS open, just not by us
                     else:
                         # Unknown/error – fallback: still open (existing behaviour)
+                        self.filelog("  -> gate state UNKNOWN – blind open")
                         print("[%s] Gate state UNKNOWN – falling back to blind open" %
                               datetime.now().strftime('%H:%M:%S'))
                         gate_opened = relay.open()
                         in_cooldown = True
                         cooldown_until = now + cooldown
                 elif authorized and not relay_online:
+                    self.filelog("  -> relay OFFLINE – gate not opened")
                     self._root.after(0, lambda: self._set_status(
                         "RELAY OFFLINE – gate not opened", self.COL_OFFLINE))
 
@@ -599,8 +651,14 @@ class ANGUIGate:
     def _check_and_reopen_stuck_gate(self, now: float):
         """If the gate has been open for longer than reopen_check_interval,
         close it automatically. This handles the case where someone opens
-        the gate with a remote and it stays open all day."""
+        the gate with a remote and it stays open all day.
+
+        A false "open" reading (lighting change, camera AGC) is filtered out
+        by requiring OPEN_CONFIRMATION_REQUIRED consecutive detections before
+        the relay is triggered.
+        """
         if self._last_gate_state != "open":
+            self._open_confirmation_count = 0  # reset on any non-open cached state
             return
         if now - self._last_reopen_check < self._reopen_check_interval:
             return
@@ -608,11 +666,24 @@ class ANGUIGate:
         # Re-check current state
         current_state = self._check_gate_state_safe()
         if current_state == "open":
-            print("[%s] Gate has been open for %ds – automatically closing" %
-                  (datetime.now().strftime('%H:%M:%S'), self._reopen_check_interval))
+            self._open_confirmation_count += 1
+            if self._open_confirmation_count < self._OPEN_CONFIRMATION_REQUIRED:
+                print("[%s] Gate detected 'open' (%d/%d) – waiting for confirmation"
+                      % (datetime.now().strftime('%H:%M:%S'),
+                         self._open_confirmation_count,
+                         self._OPEN_CONFIRMATION_REQUIRED))
+                return
+            # Confirmed: N consecutive open readings
+            self._open_confirmation_count = 0
+            print("[%s] Gate OPEN confirmed (%d readings) – automatically closing"
+                  % (datetime.now().strftime('%H:%M:%S'),
+                     self._OPEN_CONFIRMATION_REQUIRED))
             self._root.after(0, lambda: self._set_status(
-                "AUTO-CLOSING gate (open > %ds)" % self._reopen_check_interval, "#E67E22"))
+                "AUTO-CLOSING gate (open > %ds, confirmed)" % self._reopen_check_interval, "#E67E22"))
             threading.Thread(target=self._auto_close_gate, daemon=True).start()
+        else:
+            # State changed back to closed before we confirmed – reset counter
+            self._open_confirmation_count = 0
 
     def _auto_close_gate(self):
         """Close the gate automatically (runs in background thread)."""
