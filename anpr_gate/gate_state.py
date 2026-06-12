@@ -53,11 +53,20 @@ class GateStateDetector:
             hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
             avg_saturation = hsv[:, :, 1].mean()
 
-            if avg_saturation > 25:
-                # Daytime: use yellow stripe detection
+            # Use time of day to choose detection method.
+            # Daytime (6:00-20:00): try yellow stripe detection first.
+            # Nighttime: use dark pixel fraction (IR camera, no color).
+            from datetime import datetime
+            hour = datetime.now().hour
+            is_daytime = 6 <= hour < 20
+
+            if is_daytime:
+                # Daytime: yellow stripe detection only
+                # If yellow stripes are visible → gate is open
+                # If no yellow stripes → gate is closed (gate panel blocks the view)
                 return self._check_yellow(img)
             else:
-                # Nighttime (IR/grayscale): use brightness-based detection
+                # Nighttime (IR): use dark pixel fraction
                 return self._check_brightness(img)
         except Exception:
             return "unknown"
@@ -113,11 +122,11 @@ class GateStateDetector:
             if img is None:
                 return {}
 
-            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-            avg_sat = hsv[:, :, 1].mean()
-            is_color = avg_sat > 25
+            from datetime import datetime
+            hour = datetime.now().hour
+            is_daytime = 6 <= hour < 20
 
-            if is_color:
+            if is_daytime:
                 h, w = img.shape[:2]
                 roi = img[h // 3:, :]
                 hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
@@ -130,7 +139,7 @@ class GateStateDetector:
                 yellow_frac = np.count_nonzero(mask) / mask.size
                 return {
                     "method": "yellow_stripes",
-                    "avg_saturation": round(avg_sat, 1),
+                    "hour": hour,
                     "yellow_fraction": round(yellow_frac, 4),
                     "yellow_threshold": self._yellow_threshold,
                     "gate_state": "open" if yellow_frac > self._yellow_threshold else "closed",
@@ -141,7 +150,7 @@ class GateStateDetector:
                 dark_frac = np.count_nonzero(left < 60) / left.size
                 return {
                     "method": "dark_pixel_fraction",
-                    "avg_saturation": round(avg_sat, 1),
+                    "hour": hour,
                     "dark_fraction": round(dark_frac, 4),
                     "dark_threshold": 0.10,
                     "gate_state": "open" if dark_frac > 0.10 else "closed",
