@@ -48,7 +48,8 @@ def main():
     reopen_check_interval = gate_cfg.get("reopen_check_interval", 180)
 
     if gate_cfg["enabled"]:
-        rtsp_url = gate_cfg.get("rtsp_url", "")
+        cam_cfg = cfg.get_all_gate_camera_config()
+        rtsp_url = cam_cfg.get("rtsp_url", "")
         if rtsp_url:
             detector = GateStateDetector(
                 roi=(488, 730, 840, 1184),

@@ -45,7 +45,7 @@ snapshot_path = /ISAPI/Streaming/channels/101/picture
 [gate_detector]
 ref_day_path = refs/ref_close_day.jpg
 ref_night_path = refs/ref_close_night.jpg
-threshold = 20.0
+threshold = 65.0
 enabled = True
 reopen_check_interval = 180
 
@@ -217,6 +217,7 @@ relay_ping_interval = 1800
             'password': self.get('gate_camera', 'password', ''),
             'snapshot_path': self.get('gate_camera', 'snapshot_path',
                                       '/ISAPI/Streaming/channels/101/picture'),
+            'rtsp_url': self.get('gate_camera', 'rtsp_url', ''),
         }
 
     def get_gate_camera_auth(self) -> str:
