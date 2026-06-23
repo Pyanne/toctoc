@@ -349,13 +349,18 @@ class ANGUIGate:
     # ------------------------------------------------------------------
 
     def _check_gate_state_safe(self) -> str:
-        """Check gate state. DISABLED — always returns "closed" so relay fires.
+        """Check gate state using OCR on the magnet ROI.
 
-        TODO: reimplement with reliable detection method.
-        Previously used yellow stripe detection but it had too many false
-        positives from foliage and shadows.
+        Returns "closed" (magnet text visible), "open" (no text), or "unknown" (error).
         """
-        return "closed"
+        if not self._gate_detector:
+            return "unknown"
+        try:
+            state = self._gate_detector.check()
+            self._last_gate_state = state
+            return state
+        except Exception:
+            return "unknown"
 
     # ------------------------------------------------------------------
     # Detection loop control
@@ -433,11 +438,14 @@ class ANGUIGate:
         while self._running and not self._shutdown_flag.is_set():
             now = time.time()
 
-            # Relay health check (gate state check DISABLED)
+            # Relay health check + periodic gate state check
             if now - last_ping >= ping_int:
                 relay_online = relay.is_online()
                 self._update_relay_status(relay_online)
                 last_ping = now
+                if self._gate_detector:
+                    threading.Thread(target=self._do_periodic_gate_check,
+                                    daemon=True).start()
 
             # Cooldown check
             if in_cooldown and now >= cooldown_until:
@@ -504,8 +512,11 @@ class ANGUIGate:
                         f"snap={snap_ms:.0f}ms  detect={detect_ms:.0f}ms  total={total_ms:.0f}ms  "
                         f"file={os.path.basename(detect_path)}"
                     )
-                    # Gate state check DISABLED — label not updated
-                    # TODO: re-enable when detection is reliable
+                    # Refresh gate state display periodically
+                    if self._gate_detector and (now - last_gate_poll) >= GATE_POLL_INTERVAL:
+                        state = self._check_gate_state_safe()
+                        self._update_gate_label(state)
+                        last_gate_poll = now
                     time.sleep(interval)
                     continue
 

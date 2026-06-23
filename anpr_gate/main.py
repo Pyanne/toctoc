@@ -48,16 +48,16 @@ def main():
     reopen_check_interval = gate_cfg.get("reopen_check_interval", 180)
 
     if gate_cfg["enabled"]:
-        ref_day, ref_night = cfg.resolve_gate_refs(base_dir)
-        if os.path.exists(ref_day) and os.path.exists(ref_night):
+        rtsp_url = gate_cfg.get("rtsp_url", "")
+        if rtsp_url:
             detector = GateStateDetector(
-                ref_day_path=ref_day,
-                ref_night_path=ref_night,
-                threshold=gate_cfg["threshold"],
+                roi=(488, 730, 840, 1184),
+                threshold=0.3,
+                gate_cam_url=rtsp_url,
             )
-            print(f"  Gate state detector: enabled (refs loaded from {ref_day}, {ref_night})")
+            print(f"  Gate state detector: enabled (OCR magnet detection, RTSP)")
         else:
-            print(f"  Gate state detector: DISABLED (refs missing: {ref_day}, {ref_night})")
+            print(f"  Gate state detector: DISABLED (no rtsp_url in config)")
     else:
         print("  Gate state detector: DISABLED by config")
 

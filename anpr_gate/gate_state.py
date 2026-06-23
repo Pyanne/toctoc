@@ -1,18 +1,20 @@
-"""Gate state detector using yellow stripe detection.
+"""Gate state detector using OCR on a marked region.
 
-When the gate is OPEN, the camera sees through to the road beyond which has
-bright yellow warning stripes painted on the asphalt. When the gate is CLOSED,
-the gate panels block the view and no yellow stripes are visible.
+A fridge magnet with French text is attached to the gate. When the gate is
+closed, the magnet is visible in the camera's field of view at a known ROI.
+When the gate is open, the magnet moves out of view.
 
-Detection method: look for yellow pixels in the lower portion of the image
-using HSV color thresholding. If enough yellow is present → gate is open.
-Otherwise → gate is closed.
+Detection method:
+1. Crop the gate camera snapshot to the magnet ROI
+2. Run EasyOCR on the ROI
+3. If text with confidence > 0.3 is found → gate is CLOSED (magnet visible)
+4. If no text found → gate is OPEN (magnet not visible)
 
-This works for daytime (color camera). At night (IR/grayscale mode), yellow
-detection is unreliable, so we fall back to checking overall brightness —
-night images with the gate open tend to show more of the bright road surface.
+ROI: upper-left (488, 730), lower-right (840, 1184)
 """
 import os
+import subprocess
+import tempfile
 from typing import Tuple
 
 import cv2
@@ -20,140 +22,122 @@ import numpy as np
 
 
 class GateStateDetector:
-    """Detects gate state (open/closed) by looking for yellow warning stripes."""
+    """Detects gate state by reading text from a magnet on the gate."""
 
     def __init__(self, ref_day_path: str = "", ref_night_path: str = "",
-                 roi: Tuple[int, int, int, int] = (200, 200, 1400, 500),
-                 threshold: float = 20.0,
-                 yellow_threshold: float = 0.03):
+                 roi: Tuple[int, int, int, int] = (488, 730, 840, 1184),
+                 threshold: float = 0.3,
+                 gate_cam_url: str = "",
+                 gate_cam_auth: str = ""):
         """
         Args:
-            ref_day_path: unused (kept for API compatibility)
-            ref_night_path: unused (kept for API compatibility)
-            roi: unused (kept for API compatibility)
-            threshold: unused (kept for API compatibility)
-            yellow_threshold: minimum fraction of image that must be yellow
-                              to consider the gate open (default 5%)
+            roi: (x1, y1, x2, y2) region where the magnet text appears
+            threshold: minimum OCR confidence to consider text as detected
+            gate_cam_url: RTSP URL for the gate camera
+            gate_cam_auth: "user:password" for the camera
         """
-        self._yellow_threshold = yellow_threshold
+        self._roi = roi
+        self._threshold = threshold
+        self._gate_cam_url = gate_cam_url
+        self._gate_cam_auth = gate_cam_auth
+        self._reader = None
 
-    def check(self, image_path: str) -> str:
-        """Detect gate state from a snapshot image.
-        Returns "closed", "open", or "unknown".
-        """
-        if not os.path.exists(image_path):
-            return "unknown"
+    def _ensure_reader(self):
+        """Lazily initialize EasyOCR reader."""
+        if self._reader is None:
+            import warnings
+            warnings.filterwarnings("ignore", message=".*pin_memory.*")
+            import easyocr
+            self._reader = easyocr.Reader(["en", "fr"], gpu=False)
 
+    def grab_snapshot(self, output_path: str) -> bool:
+        """Grab a snapshot from the gate camera via RTSP."""
+        if not self._gate_cam_url:
+            return False
+        cmd = [
+            "ffmpeg", "-nostats", "-loglevel", "0",
+            "-rtsp_transport", "tcp", "-y",
+            "-i", self._gate_cam_url,
+            "-vframes", "1", "-f", "mjpeg", output_path,
+        ]
         try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=10)
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
+        except Exception:
+            return False
+
+    def check(self, image_path: str = None) -> str:
+        """Detect gate state.
+
+        If image_path is provided, use it directly.
+        Otherwise grab a fresh snapshot from the gate camera.
+
+        Returns "closed" (magnet visible), "open" (magnet not visible),
+        or "unknown" (error).
+        """
+        try:
+            if image_path is None or not os.path.exists(image_path):
+                if not self._gate_cam_url:
+                    return "unknown"
+                tmp = tempfile.mktemp(suffix=".jpg")
+                if not self.grab_snapshot(tmp):
+                    return "unknown"
+                image_path = tmp
+
             img = cv2.imread(image_path)
             if img is None:
                 return "unknown"
 
-            # Check if image is color (daytime) or grayscale (nighttime IR)
-            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-            avg_saturation = hsv[:, :, 1].mean()
+            # Crop to ROI
+            x1, y1, x2, y2 = self._roi
+            roi_img = img[y1:y2, x1:x2]
+            if roi_img.size == 0:
+                return "unknown"
 
-            # Use time of day to choose detection method.
-            # Daytime (6:00-20:00): try yellow stripe detection first.
-            # Nighttime: use dark pixel fraction (IR camera, no color).
-            from datetime import datetime
-            hour = datetime.now().hour
-            is_daytime = 6 <= hour < 20
+            # Run OCR
+            self._ensure_reader()
+            results = self._reader.readtext(roi_img, detail=1, paragraph=False)
 
-            if is_daytime:
-                # Daytime: yellow stripe detection only
-                # If yellow stripes are visible → gate is open
-                # If no yellow stripes → gate is closed (gate panel blocks the view)
-                return self._check_yellow(img)
-            else:
-                # Nighttime (IR): use dark pixel fraction
-                return self._check_brightness(img)
+            # Check if any text exceeds confidence threshold
+            for _bbox, text, conf in results:
+                if conf >= self._threshold and len(text.strip()) > 2:
+                    return "closed"  # Magnet text visible → gate is closed
+
+            return "open"  # No text found → magnet not visible → gate is open
         except Exception:
             return "unknown"
 
-    def _check_yellow(self, img: np.ndarray) -> str:
-        """Detect yellow warning stripes in a color image.
-
-        The yellow stripes are bright yellow painted on dark asphalt.
-        We convert to HSV and look for pixels in the yellow hue range
-        with moderate-to-high saturation and value.
-        """
-        # Focus on the lower 2/3 of the image (where the road/stripes are)
-        h, w = img.shape[:2]
-        roi = img[h // 3:, :]
-
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-
-        # Yellow in HSV: hue ~15-45 (OpenCV hue range 0-180)
-        # Using moderate thresholds to catch yellow paint on asphalt
-        lower_yellow = np.array([15, 60, 100])
-        upper_yellow = np.array([45, 255, 255])
-
-        mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
-
-        # Clean up noise with morphological operations
-        kernel = np.ones((5, 5), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-
-        # Calculate fraction of ROI that is yellow
-        yellow_fraction = np.count_nonzero(mask) / mask.size
-
-        return "open" if yellow_fraction > self._yellow_threshold else "closed"
-
-    def _check_brightness(self, img: np.ndarray) -> str:
-        """Nighttime fallback: use dark pixel fraction in left half.
-
-        When gate is closed, the gate panel fills the left side of the image
-        and is uniformly bright (very few dark pixels). When gate is open,
-        the camera sees through to the road/shadows beyond, producing many
-        dark pixels in the left half.
-        """
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
-        left = gray[:, :gray.shape[1] // 2].astype(np.float32)
-        dark_fraction = np.count_nonzero(left < 60) / left.size
-        # Closed: ~0.5% dark, Open: ~35% dark. Threshold at 10%.
-        return "open" if dark_fraction > 0.10 else "closed"
-
-    def diff_scores(self, image_path: str) -> dict:
+    def diff_scores(self, image_path: str = None) -> dict:
         """Return diagnostic info."""
         try:
+            if image_path is None or not os.path.exists(image_path):
+                if not self._gate_cam_url:
+                    return {"error": "no camera configured"}
+                tmp = tempfile.mktemp(suffix=".jpg")
+                if not self.grab_snapshot(tmp):
+                    return {"error": "snapshot failed"}
+                image_path = tmp
+
             img = cv2.imread(image_path)
             if img is None:
-                return {}
+                return {"error": "cannot read image"}
 
-            from datetime import datetime
-            hour = datetime.now().hour
-            is_daytime = 6 <= hour < 20
+            x1, y1, x2, y2 = self._roi
+            roi_img = img[y1:y2, x1:x2]
 
-            if is_daytime:
-                h, w = img.shape[:2]
-                roi = img[h // 3:, :]
-                hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-                lower = np.array([15, 60, 100])
-                upper = np.array([45, 255, 255])
-                mask = cv2.inRange(hsv_roi, lower, upper)
-                kernel = np.ones((5, 5), np.uint8)
-                mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-                mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-                yellow_frac = np.count_nonzero(mask) / mask.size
-                return {
-                    "method": "yellow_stripes",
-                    "hour": hour,
-                    "yellow_fraction": round(yellow_frac, 4),
-                    "yellow_threshold": self._yellow_threshold,
-                    "gate_state": "open" if yellow_frac > self._yellow_threshold else "closed",
-                }
-            else:
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
-                left = gray[:, :gray.shape[1] // 2].astype(np.float32)
-                dark_frac = np.count_nonzero(left < 60) / left.size
-                return {
-                    "method": "dark_pixel_fraction",
-                    "hour": hour,
-                    "dark_fraction": round(dark_frac, 4),
-                    "dark_threshold": 0.10,
-                    "gate_state": "open" if dark_frac > 0.10 else "closed",
-                }
-        except Exception:
-            return {}
+            self._ensure_reader()
+            results = self._reader.readtext(roi_img, detail=1, paragraph=False)
+
+            texts = [{"text": t, "conf": round(c, 2)} for _b, t, c in results if c >= 0.1]
+            max_conf = max((c for _b, t, c in results), default=0)
+
+            return {
+                "method": "ocr_magnet",
+                "roi": self._roi,
+                "texts": texts,
+                "max_confidence": round(max_conf, 2),
+                "threshold": self._threshold,
+                "gate_state": "closed" if max_conf >= self._threshold else "open",
+            }
+        except Exception as e:
+            return {"error": str(e)}
